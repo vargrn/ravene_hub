@@ -1084,7 +1084,7 @@ button {
 .footer {
   width: min(100%, var(--max-width));
   margin: auto auto 0;
-  padding: 28px 22px 30px;
+  padding: 14px 22px 30px;
   color: var(--text-muted);
   font-family: "Exo2", serif;
   font-size: 12px;
