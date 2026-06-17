@@ -16,9 +16,7 @@
       <div class="topbar-inner">
         <a class="brand" href="index.html" aria-label="Ravene Hub home">
           <img class="brand-mark" src="assets/media/profile/avatar.webp" alt="" />
-          <span class="brand-name">
-            <strong>Ravene Hub</strong>
-          </span>
+          <span class="brand-name"><strong>Ravene Hub</strong></span>
         </a>
         <nav class="nav" aria-label="Main navigation">
           <a class="is-active" href="index.html">Home</a>
@@ -30,136 +28,119 @@
     </header>
 
     <main class="main">
-      <section class="hero-cover" aria-label="BioPunk cover art"></section>
-
-      <section class="profile" aria-label="Creator profile">
-        <img class="profile-avatar" src="assets/media/profile/avatar_2.webp" alt="BioPunk: Phantasmagoria avatar" />
-        <div class="profile-title">
-          <p>BioPunk: Phantasmagoria</p>
-          <p>Hi! I'm Ravene. I’m creating a psychological adult thriller about how a single random event can completely turn a person’s life upside down. About how a person can lose their will, sense of self and even gender identity..</p>
+      <section class="home-hero glass" aria-label="BioPunk: Phantasmagoria">
+        <div class="home-hero-art" aria-hidden="true">
+          <img src="assets/media/cover/title_3.png" alt="" />
+        </div>
+        <div class="home-hero-copy">
+          <div class="meta"><span>Visual Novel</span><span>Psychological thriller</span><span>Ravene</span></div>
+          <h1>BioPunk: Phantasmagoria</h1>
+          <p class="text">A hub for builds, access, project updates, and the companion Mini App layer. The browser version is the main entrance for BioPunk materials and Early Access checks.</p>
+          <div class="home-actions">
+            <a class="btn" href="builds.html">Open Build Library</a>
+            <button class="btn btn-secondary" type="button" data-build-launch>Launch Early Access</button>
+            <a class="btn btn-secondary" href="account.html#connect-account">Account</a>
+          </div>
+          <p class="form-note home-build-message" data-build-message>Early Access launch checks the current account and active tier.</p>
         </div>
       </section>
 
-      <section class="posts-page home-posts" aria-label="Creator feed">
-        <section class="posts-section">
-          <div class="section-line">
-            <h2>Latest post</h2>
-          </div>
-          <a class="latest-post" href="post-alternative-system.html">
-            <img src="assets/media/posts/biopunk-duo.webp" alt="BioPunk latest post artwork" />
-            <div class="latest-post-copy">
-              <div class="meta"><span>Development</span><span>May 22</span></div>
-              <h3>Alternative system for Early Access verification</h3>
-              <p class="text">I’ve created an alternative system for project updates, build notes, and other features based on the browser hub and Mini App infrastructure.</p>
-              <div class="reaction-line"><span>♡ 1</span><span>Comment</span></div>
+      <section class="layout home-layout">
+        <section class="stack">
+          <article class="glass card" id="home-access" data-account-panel>
+            <div class="meta" data-auth-only hidden><span>Current account</span><span data-account-state>Checking</span></div>
+            <div class="meta" data-auth-gate><span>Access</span><span>Browser account</span></div>
+            <h2>Access Status</h2>
+            <p class="text" data-account-summary>Checking browser session and access records...</p>
+            <div class="account-status" data-auth-only hidden>
+              <div><span>Identity</span><strong data-account-name>Not connected</strong></div>
+              <div><span>Tier</span><strong data-account-tier>No active tier</strong></div>
+              <div><span>Expires</span><strong data-account-expires>-</strong></div>
             </div>
-          </a>
+            <div class="grid-3 single-layout" data-auth-only hidden>
+              <div class="compact-tier" data-tier-indicator="1"><div class="meta"><span>News</span></div><h3>Tier 1</h3></div>
+              <div class="compact-tier is-featured" data-tier-indicator="2"><div class="meta"><span>Builds</span></div><h3>Tier 2</h3></div>
+              <div class="compact-tier" data-tier-indicator="3"><div class="meta"><span>Private</span></div><h3>Tier 3</h3></div>
+            </div>
+            <div class="auth-gate" data-auth-gate>
+              <button class="btn" type="button" data-auth-trigger="login">Login</button>
+              <button class="btn btn-secondary" type="button" data-auth-trigger="register">Registration</button>
+            </div>
+            <form class="connect-form auth-panel" data-auth-form="login" hidden>
+              <label for="home-login-email">Email</label>
+              <input id="home-login-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" />
+              <label for="home-login-password">Password</label>
+              <input id="home-login-password" name="password" type="password" autocomplete="current-password" placeholder="Password" />
+              <button class="btn" type="submit">Log in</button>
+              <p class="form-note" data-auth-message="login">Use the email and password attached to your account.</p>
+            </form>
+            <form class="connect-form auth-panel" data-auth-form="register" hidden>
+              <label for="home-register-name">Display name</label>
+              <input id="home-register-name" name="displayName" type="text" autocomplete="name" placeholder="Ravene" />
+              <label for="home-register-email">Email</label>
+              <input id="home-register-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" />
+              <label for="home-register-password">Password</label>
+              <input id="home-register-password" name="password" type="password" autocomplete="new-password" placeholder="At least 8 characters" />
+              <button class="btn" type="submit">Create account</button>
+              <p class="form-note" data-auth-message="register">Registration creates the same account used for access tiers and Early Access check.</p>
+            </form>
+            <div class="account-actions">
+              <button class="btn btn-secondary" type="button" data-logout-button hidden>Log out</button>
+            </div>
+          </article>
+
+          <section class="home-card-grid" aria-label="Hub sections">
+            <a class="glass card home-link-card" href="builds.html">
+              <div class="meta"><span>Playable</span></div>
+              <h3>Build Library</h3>
+              <p class="text">Public and private BioPunk builds in one place.</p>
+            </a>
+            <a class="glass card home-link-card" href="post-alternative-system.html">
+              <div class="meta"><span>Development</span></div>
+              <h3>Latest Post</h3>
+              <p class="text">Read the current note about the alternative access system.</p>
+            </a>
+            <a class="glass card home-link-card" href="https://biopunk-mini-app.pages.dev/" target="_blank" rel="noopener">
+              <div class="meta"><span>Companion</span></div>
+              <h3>BioPunk Mini App</h3>
+              <p class="text">Open the Mini App for Telegram-linked access and companion community features.</p>
+            </a>
+          </section>
+
+          <article class="glass card">
+            <div class="section-line">
+              <h2>Latest post</h2>
+              <a class="mini-btn" href="posts.html">Archive</a>
+            </div>
+            <a class="latest-post latest-post-compact" href="post-alternative-system.html">
+              <img src="assets/media/posts/biopunk-duo.webp" alt="BioPunk latest post artwork" />
+              <div class="latest-post-copy">
+                <div class="meta"><span>Development</span><span>May 22</span></div>
+                <h3>Alternative system for Early Access verification</h3>
+                <p class="text">Project updates, build notes, and access features are moving into the browser hub and Mini App infrastructure.</p>
+                <div class="reaction-line"><span>♡ 1</span><span>Comment</span></div>
+              </div>
+            </a>
+          </article>
         </section>
 
-        <section class="posts-section">
-          <div class="section-line">
-            <h2>Pinned posts ›</h2>
-          </div>
-          <div class="post-grid">
-            <a class="post-card-thumb" href="post-alternative-system.html">
-              <img src="assets/media/posts/biopunk-duo.webp" alt="BioPunk pinned post artwork" />
-              <div class="post-card-body">
-                <h3>Alternative access system</h3>
-                <p class="text">The main note about the new browser hub, Mini App companion layer, and project infrastructure.</p>
-                <div class="post-date">May 22</div>
-                <div class="reaction-line"><span>♡ 1</span></div>
-              </div>
-            </a>
-
-            <a class="post-card-thumb" href="post-alternative-system.html">
-              <img src="assets/media/posts/ravene.webp" alt="Ravene pinned post artwork" />
-              <div class="post-card-body">
-                <h3>Thoughts 2.</h3>
-                <p class="text">The first fully developed character, the one from whom the whole story’s foundation began.</p>
-                <div class="post-date">April 11</div>
-              </div>
-            </a>
-
-            <a class="post-card-thumb" href="post-alternative-system.html">
-              <div class="audio-thumb" aria-label="Audio post preview"></div>
-              <div class="post-card-body">
-                <h3>BioPunk - Overdose</h3>
-                <p class="text">More sounds turned into music.</p>
-                <div class="post-date">April 3</div>
-              </div>
-            </a>
-          </div>
-        </section>
-
-        <section class="posts-section">
-          <div class="section-line">
-            <h2>Recent posts ›</h2>
-          </div>
-          <div class="post-grid">
-            <a class="post-card-thumb" href="post-alternative-system.html">
-              <img src="assets/media/posts/biopunk-duo.webp" alt="BioPunk post artwork" />
-              <div class="post-card-body">
-                <h3>While moving the project into its own hub</h3>
-                <p class="text">The browser version becomes the main place for posts, build notes, and production materials.</p>
-                <div class="post-date">May 19</div>
-                <div class="reaction-line"><span>♡ 1</span></div>
-              </div>
-            </a>
-
-            <a class="post-card-thumb" href="post-alternative-system.html">
-              <img src="assets/media/posts/art-upgrade.webp" alt="BioPunk art post artwork" />
-              <div class="post-card-body">
-                <h3>Art upgrade</h3>
-                <p class="text">A professional artist agreed to help with the visual side of the project.</p>
-                <div class="post-date">May 15</div>
-              </div>
-            </a>
-
-            <a class="post-card-thumb" href="post-alternative-system.html">
-              <img src="assets/media/posts/biopunk-duo.webp" alt="BioPunk online post artwork" />
-              <div class="post-card-body">
-                <h3>BioPunk: Phantasmagoria is online</h3>
-                <p class="text">I finally set up a web space for the game. This will be the main place for builds.</p>
-                <div class="post-date">May 9</div>
-                <div class="reaction-line"><span>♡ 1</span></div>
-              </div>
-            </a>
-          </div>
-        </section>
-
-        <section class="posts-section">
-          <div class="section-line">
-            <h2>Popular posts ›</h2>
-          </div>
-          <div class="post-grid">
-            <a class="post-card-thumb" href="post-alternative-system.html">
-              <img src="assets/media/posts/ravene.webp" alt="Ravene post artwork" />
-              <div class="post-card-body">
-                <h3>Thoughts 2.</h3>
-                <p class="text">The first fully developed character, the one from whom the whole story’s foundation began.</p>
-                <div class="post-date">April 11</div>
-              </div>
-            </a>
-
-            <a class="post-card-thumb" href="post-alternative-system.html">
-              <div class="audio-thumb" aria-label="Audio post preview"></div>
-              <div class="post-card-body">
-                <h3>BioPunk - Overdose</h3>
-                <p class="text">More sounds turned into music.</p>
-                <div class="post-date">April 3</div>
-              </div>
-            </a>
-
-            <a class="post-card-thumb" href="post-alternative-system.html">
-              <div class="audio-thumb" aria-label="Audio post preview"></div>
-              <div class="post-card-body">
-                <h3>BioPunk - Lose of control</h3>
-                <p class="text">I accidentally ended up making music for the game.</p>
-                <div class="post-date">March 30</div>
-              </div>
-            </a>
-          </div>
-        </section>
+        <aside class="sidebar">
+          <section class="glass card">
+            <div class="meta"><span>Project</span></div>
+            <h3>BioPunk hub</h3>
+            <p class="text">This site is the browser-side surface for posts, builds, account access, and future private content.</p>
+          </section>
+          <section class="glass card">
+            <div class="meta"><span>Early Access</span></div>
+            <h3>Tier check</h3>
+            <p class="text">Launching an EA build uses the current browser account and checks whether Tier 2 access is active.</p>
+          </section>
+          <section class="glass card">
+            <div class="meta"><span>Mini App</span></div>
+            <h3>Telegram bridge</h3>
+            <p class="text">The Mini App remains a companion entrance for synchronized access and community features.</p>
+          </section>
+        </aside>
       </section>
     </main>
 

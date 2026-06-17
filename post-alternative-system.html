@@ -18,88 +18,63 @@
     </header>
 
     <main class="main">
-      <nav class="tabs" aria-label="Creator sections">
-        <a class="is-active" href="index.html">Home</a><a href="membership.html">Memberships</a><a href="about.html">About</a>
-      </nav>
+      <div class="post-layout" data-post-page data-post-slug="alternative-system">
+        <article class="glass post-detail-card">
+          <img class="post-detail-hero" src="assets/media/posts/biopunk-duo.webp" alt="BioPunk post artwork" />
+          <div class="post-detail-body">
+            <div class="meta"><span>Development</span><span>May 22</span><span>Public post</span></div>
+            <h1>Alternative system for Early Access verification</h1>
 
-      <article class="post-detail">
-        <img class="post-detail-hero" src="assets/media/posts/biopunk-duo.webp" alt="BioPunk post artwork" />
-        <h1>Alternative system for Early Access verification</h1>
-
-        <div class="post-head">
-          <div class="author-line">
-            <img src="assets/media/profile/avatar.webp" alt="" />
-            <div>
-              <strong>BioPunk: Phantasmagoria</strong>
-              <span>May 22</span>
+            <div class="post-head">
+              <div class="author-line">
+                <img src="assets/media/profile/avatar.webp" alt="" />
+                <div>
+                  <strong>BioPunk: Phantasmagoria</strong>
+                  <span>Posted May 22 at 6:01 AM</span>
+                </div>
+              </div>
+              <div class="post-tools" aria-label="Post actions">
+                <button class="mini-btn" type="button" data-share-url>Share</button>
+                <a class="mini-btn" href="#comments">Comments <span data-comment-count>0</span></a>
+                <a class="mini-btn" href="posts.html">Archive</a>
+              </div>
             </div>
-          </div>
-          <div class="post-tools" aria-label="Post actions">
-            <a class="round-btn" href="account.html#connect-account">Edit</a>
-            <a class="round-btn" href="#post-stats" aria-label="Post stats">▥</a>
-            <button class="round-btn" type="button" data-share-url aria-label="Share post">↥</button>
-            <a class="round-btn" href="#comments" aria-label="Open comments">...</a>
-          </div>
-        </div>
 
-        <div class="post-content">
-          <p>I’ve created an alternative system for Early Access verification, project updates, build notes, and other features based on the BioPunk hub and Mini App infrastructure.</p>
-          <p>The browser version gives the project a proper large-screen place: posts can breathe, images are not trapped inside a tiny app shell, and materials can be grouped into member access without being buried in chat.</p>
-          <p>For now, the priority is simple: make the site the main public surface for the project, keep the Mini App as a companion layer, and move everything important into an interface that feels like it belongs to BioPunk.</p>
-          <p>And now I’m going back to writing the continuation of the story.</p>
-        </div>
+            <div class="post-content">
+              <p>I’ve created an alternative system for Early Access verification, project updates, build notes, and other features based on the BioPunk hub and Mini App infrastructure.</p>
+              <p>The browser version gives the project a proper large-screen place: posts can breathe, images are not trapped inside a tiny app shell, and materials can be grouped into member access without being buried in chat.</p>
+              <p>For now, the priority is simple: make the site the main public surface for the project, keep the Mini App as a companion layer, and move everything important into an interface that feels like it belongs to BioPunk.</p>
+              <p>And now I’m going back to writing the continuation of the story.</p>
+            </div>
 
-        <div class="post-actions" id="post-stats">
-          <span class="post-date">Posted May 22 at 6:01 AM</span>
-          <div class="reaction-line"><span>♡ 1</span><span>Comment</span><span>Share</span></div>
-        </div>
+            <div class="post-actions" id="post-stats">
+              <span class="post-date">♡ 1 reaction</span>
+              <div class="reaction-line"><span data-comment-summary>0 comments</span><span>Shareable link ready</span></div>
+            </div>
 
-        <section class="comments-box" id="comments" aria-label="Comments">
-          <h2>Comments</h2>
-          <div class="comment-input">
-            <img src="assets/media/profile/avatar.webp" alt="" />
-            <div>Start the conversation...</div>
-          </div>
-        </section>
-      </article>
-
-      <section class="posts-page posts-related">
-        <section class="posts-section">
-          <div class="section-line">
-            <h2>Popular posts ›</h2>
-          </div>
-          <div class="post-grid">
-            <a class="post-card-thumb" href="post-alternative-system.html">
-              <img src="assets/media/posts/biopunk-duo.webp" alt="BioPunk post artwork" />
-              <div class="post-card-body">
-                <h3>While resolving issues with the payment systems</h3>
-                <p class="text">Some external systems became a bottleneck, so the project hub moves first.</p>
-                <div class="post-date">May 19</div>
+            <section class="comments-box" id="comments" aria-label="Comments">
+              <div class="section-line">
+                <h2>Comments</h2>
               </div>
-            </a>
-
-            <a class="post-card-thumb" href="post-alternative-system.html">
-              <img src="assets/media/posts/art-upgrade.webp" alt="BioPunk art post artwork" />
-              <div class="post-card-body">
-                <h3>Art upgrade</h3>
-                <p class="text">A visual upgrade for the project and the next stage of presentation.</p>
-                <div class="post-date">May 15</div>
+              <div class="comment-list" data-comment-list>
+                <p class="form-note">Loading comments...</p>
               </div>
-            </a>
-
-            <a class="post-card-thumb" href="post-alternative-system.html">
-              <div class="audio-thumb" aria-label="Audio post preview"></div>
-              <div class="post-card-body">
-                <h3>BioPunk - Overdose</h3>
-                <p class="text">More sounds turned into music.</p>
-                <div class="post-date">April 3</div>
-              </div>
-            </a>
+              <form class="comment-form" data-comment-form>
+                <textarea name="body" placeholder="Write a comment..." rows="4"></textarea>
+                <div class="comment-form-actions">
+                  <button class="btn" type="submit">Send comment</button>
+                  <a class="btn btn-secondary" href="account.html#connect-account" data-comment-login>Login / Registration</a>
+                </div>
+                <p class="form-note" data-comment-message>Comments use your Ravene Hub account.</p>
+              </form>
+            </section>
           </div>
-        </section>
-      </section>
+        </article>
+
+      </div>
     </main>
     <footer class="footer"><span>©Ravene, 2026</span></footer>
   </div>
+  <script src="assets/js/site.js"></script>
 </body>
 </html>

@@ -192,6 +192,117 @@
     });
   };
 
+  const escapeHTML = (value) => String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+  const shortDateTime = (value) => {
+    if (!value) return "";
+    return new Intl.DateTimeFormat("en", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(value));
+  };
+
+  const setCommentCount = (count) => {
+    document.querySelectorAll("[data-comment-count]").forEach((item) => {
+      item.textContent = String(count);
+    });
+    document.querySelectorAll("[data-comment-summary]").forEach((item) => {
+      item.textContent = `${count} ${count === 1 ? "comment" : "comments"}`;
+    });
+  };
+
+  const renderComments = (comments) => {
+    const list = document.querySelector("[data-comment-list]");
+    if (!list) return;
+
+    setCommentCount(comments.length);
+
+    if (!comments.length) {
+      list.innerHTML = `<p class="form-note">No comments yet. Start the conversation.</p>`;
+      return;
+    }
+
+    list.innerHTML = comments.map((comment) => `
+      <article class="comment-item">
+        <img src="${escapeHTML(comment.authorAvatar || "assets/media/profile/avatar.webp")}" alt="" />
+        <div class="comment-item-body">
+          <div class="comment-item-head"><strong>${escapeHTML(comment.authorName)}</strong><span>${escapeHTML(shortDateTime(comment.createdAt))}</span></div>
+          <p class="text">${escapeHTML(comment.body).replace(/\n/g, "<br>")}</p>
+        </div>
+      </article>
+    `).join("");
+  };
+
+  const initPostComments = async () => {
+    const page = document.querySelector("[data-post-page]");
+    const form = document.querySelector("[data-comment-form]");
+    const message = document.querySelector("[data-comment-message]");
+    const loginLink = document.querySelector("[data-comment-login]");
+    if (!page || !form) return;
+
+    const postSlug = page.dataset.postSlug || "alternative-system";
+
+    const loadComments = async () => {
+      try {
+        const data = await api(`/api/post-comments?post=${encodeURIComponent(postSlug)}`);
+        renderComments(data.comments || []);
+      } catch (error) {
+        const list = document.querySelector("[data-comment-list]");
+        if (list) list.innerHTML = `<p class="form-note">${escapeHTML(error.message || "Comments are not available yet.")}</p>`;
+      }
+    };
+
+    try {
+      const account = await api("/api/me");
+      const authenticated = Boolean(account.authenticated);
+      form.querySelector("textarea").disabled = !authenticated;
+      form.querySelector('button[type="submit"]').hidden = !authenticated;
+      if (loginLink) loginLink.hidden = authenticated;
+      if (message) {
+        message.textContent = authenticated
+          ? "Write as your Ravene Hub account."
+          : "Log in or register to comment.";
+      }
+    } catch {
+      form.querySelector("textarea").disabled = true;
+      form.querySelector('button[type="submit"]').hidden = true;
+      if (loginLink) loginLink.hidden = false;
+      if (message) message.textContent = "Open the hosted Worker build to use comments.";
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const body = String(new FormData(form).get("body") || "").trim();
+      if (!body) {
+        if (message) message.textContent = "Write a comment first.";
+        return;
+      }
+
+      if (message) message.textContent = "Sending comment...";
+
+      try {
+        const data = await api("/api/post-comments", {
+          method: "POST",
+          body: JSON.stringify({ postSlug, body }),
+        });
+        form.reset();
+        renderComments(data.comments || []);
+        if (message) message.textContent = "Comment posted.";
+      } catch (error) {
+        if (message) message.textContent = error.message || "Could not send comment.";
+      }
+    });
+
+    await loadComments();
+  };
+
   document.querySelectorAll("[data-share-url]").forEach((button) => {
     button.addEventListener("click", async () => {
       const url = window.location.href;
@@ -229,4 +340,5 @@
   initPasswordAuth();
   initLogout();
   initBuildLaunch();
+  initPostComments();
 })();

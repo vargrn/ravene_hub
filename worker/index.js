@@ -41,6 +41,14 @@ async function handleApi(request, env, url) {
       return json(account);
     }
 
+    if (url.pathname === "/api/post-comments" && request.method === "GET") {
+      return listPostComments(env, url);
+    }
+
+    if (url.pathname === "/api/post-comments" && request.method === "POST") {
+      return createPostComment(request, env);
+    }
+
     if (url.pathname === "/api/auth/login-code" && request.method === "POST") {
       return consumeLoginCode(request, env);
     }
@@ -335,6 +343,53 @@ async function createBuildLaunch(request, env) {
   });
 }
 
+async function listPostComments(env, url) {
+  if (!env.DB) return json({ comments: [], setupRequired: true });
+
+  const postSlug = cleanPostSlug(url.searchParams.get("post"));
+  if (!postSlug) return json({ error: "Post slug is required" }, { status: 400 });
+
+  const rows = await env.DB.prepare(
+    `SELECT post_comments.id, post_comments.body, post_comments.created_at, users.display_name, users.email, users.avatar_url
+     FROM post_comments
+     JOIN users ON users.id = post_comments.user_id
+     WHERE post_comments.post_slug = ?
+     ORDER BY post_comments.created_at ASC
+     LIMIT 100`,
+  ).bind(postSlug).all();
+
+  return json({
+    comments: (rows.results || []).map((row) => ({
+      id: row.id,
+      body: row.body,
+      createdAt: row.created_at,
+      authorName: row.display_name || row.email || "Ravene Hub user",
+      authorAvatar: row.avatar_url || null,
+    })),
+  });
+}
+
+async function createPostComment(request, env) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+
+  const body = await readJson(request);
+  const postSlug = cleanPostSlug(body.postSlug);
+  const comment = String(body.body || "").trim().replace(/\s+\n/g, "\n").slice(0, 2000);
+
+  if (!postSlug) return json({ error: "Post slug is required" }, { status: 400 });
+  if (comment.length < 1) return json({ error: "Write a comment first" }, { status: 400 });
+
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO post_comments (id, post_slug, user_id, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).bind(randomId(), postSlug, account.user.id, comment, now, now).run();
+
+  return listPostComments(env, new URL(`https://local/api/post-comments?post=${encodeURIComponent(postSlug)}`));
+}
+
 async function createSessionResponse(request, env, user) {
   const token = randomToken();
   const tokenHash = await sha256(token);
@@ -507,6 +562,16 @@ function normalizeEmail(value) {
 
 function cleanDisplayName(value) {
   return String(value || "").trim().replace(/\s+/g, " ").slice(0, 80);
+}
+
+function cleanPostSlug(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
 }
 
 function validateEmailPassword(email, password) {
