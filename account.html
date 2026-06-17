@@ -29,12 +29,11 @@
               <div class="compact-tier is-featured" data-tier-indicator="2"><div class="meta"><span>Builds</span></div><h3>Tier 2+</h3></div>
               <div class="compact-tier" data-tier-indicator="3"><div class="meta"><span>Private</span></div><h3>Tier 3</h3></div>
             </div>
-            <div class="auth-tabs" role="tablist" aria-label="Account access">
-              <button class="is-active" type="button" data-auth-tab="login">Login</button>
-              <button type="button" data-auth-tab="register">Register</button>
-              <button type="button" data-auth-tab="telegram">Telegram code</button>
+            <div class="auth-gate" data-auth-gate>
+              <button class="btn" type="button" data-auth-trigger="login">Login</button>
+              <button class="btn btn-secondary" type="button" data-auth-trigger="register">Registration</button>
             </div>
-            <form class="connect-form" data-auth-form="login">
+            <form class="connect-form auth-panel" data-auth-form="login" hidden>
               <label for="login-email">Email</label>
               <input id="login-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" />
               <label for="login-password">Password</label>
@@ -42,7 +41,7 @@
               <button class="btn" type="submit">Log in</button>
               <p class="form-note" data-auth-message="login">Use the email and password attached to your browser account.</p>
             </form>
-            <form class="connect-form" data-auth-form="register" hidden>
+            <form class="connect-form auth-panel" data-auth-form="register" hidden>
               <label for="register-name">Display name</label>
               <input id="register-name" name="displayName" type="text" autocomplete="name" placeholder="Ravene" />
               <label for="register-email">Email</label>
@@ -52,16 +51,7 @@
               <button class="btn" type="submit">Create account</button>
               <p class="form-note" data-auth-message="register">Registration creates the same account used for access tiers and future payments.</p>
             </form>
-            <form class="connect-form" data-auth-form="telegram" data-login-code-form hidden>
-              <label for="login-code">One-time code from Telegram bot</label>
-              <div class="connect-row">
-                <input id="login-code" name="code" type="text" autocomplete="one-time-code" inputmode="text" placeholder="RAVENE123" />
-                <button class="btn" type="submit">Connect</button>
-              </div>
-              <p class="form-note" data-login-code-message>Use this after the bot gives you a browser login code.</p>
-            </form>
             <div class="account-actions">
-              <a class="btn btn-secondary" href="https://t.me/BioPunk_EA_bot" target="_blank" rel="noreferrer">Open Telegram bot</a>
               <button class="btn btn-secondary" type="button" data-logout-button hidden>Log out</button>
             </div>
           </article>

@@ -870,6 +870,10 @@ button {
     rgba(255, 255, 255, 0.025);
 }
 
+[hidden] {
+  display: none !important;
+}
+
 .account-status {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -909,29 +913,30 @@ button {
   margin-top: 18px;
 }
 
-.auth-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.auth-gate {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
   margin-top: 18px;
 }
 
-.auth-tabs button {
-  min-height: 34px;
-  border: 1px solid var(--line-soft);
-  background: rgba(255, 255, 255, 0.018);
-  color: var(--text-soft);
-  cursor: pointer;
-  padding: 0 12px;
-  text-transform: uppercase;
-  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+.auth-gate .btn {
+  width: 100%;
 }
 
-.auth-tabs button:hover,
-.auth-tabs button.is-active {
+.auth-gate .btn.is-active {
   border-color: rgba(184, 212, 255, 0.30);
   background: rgba(184, 212, 255, 0.07);
   color: var(--text);
+}
+
+.auth-panel {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  background:
+    linear-gradient(135deg, rgba(184, 212, 255, 0.045), transparent 34%),
+    rgba(4, 7, 13, 0.28);
 }
 
 .connect-row,
@@ -1181,6 +1186,10 @@ button {
   .connect-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .auth-gate {
+    grid-template-columns: 1fr;
   }
 
   .post-grid {

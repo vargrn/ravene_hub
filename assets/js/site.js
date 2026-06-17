@@ -40,14 +40,14 @@
 
     if (!account.authenticated) {
       setText("[data-account-state]", "Not connected");
-      setText("[data-account-summary]", "Register with email, log in with password, or connect through the Telegram bridge.");
+      setText("[data-account-summary]", "Log in to an existing account or create a new browser account.");
       setText("[data-account-name]", "Not connected");
       setText("[data-account-tier]", "No active tier");
       setText("[data-account-expires]", "-");
-      document.querySelectorAll("[data-auth-tab]").forEach((item) => {
+      document.querySelectorAll("[data-auth-gate], [data-auth-trigger]").forEach((item) => {
         item.hidden = false;
       });
-      showAuthForm(document.querySelector("[data-auth-tab].is-active")?.dataset.authTab || "login");
+      closeAuthForms();
       return;
     }
 
@@ -67,7 +67,7 @@
     const logout = document.querySelector("[data-logout-button]");
     if (logout) logout.hidden = false;
 
-    document.querySelectorAll("[data-auth-form], [data-auth-tab]").forEach((item) => {
+    document.querySelectorAll("[data-auth-form], [data-auth-gate], [data-auth-trigger]").forEach((item) => {
       item.hidden = true;
     });
   };
@@ -83,18 +83,32 @@
     }
   };
 
-  const showAuthForm = (name) => {
-    document.querySelectorAll("[data-auth-tab]").forEach((button) => {
-      button.classList.toggle("is-active", button.dataset.authTab === name);
+  const closeAuthForms = () => {
+    document.querySelectorAll("[data-auth-trigger]").forEach((button) => {
+      button.classList.remove("is-active");
     });
     document.querySelectorAll("[data-auth-form]").forEach((form) => {
-      form.hidden = form.dataset.authForm !== name;
+      form.hidden = true;
+    });
+  };
+
+  const showAuthForm = (name) => {
+    let shouldOpen = true;
+    document.querySelectorAll("[data-auth-trigger]").forEach((button) => {
+      const isTarget = button.dataset.authTrigger === name;
+      if (isTarget && button.classList.contains("is-active")) {
+        shouldOpen = false;
+      }
+      button.classList.toggle("is-active", isTarget && shouldOpen);
+    });
+    document.querySelectorAll("[data-auth-form]").forEach((form) => {
+      form.hidden = !(shouldOpen && form.dataset.authForm === name);
     });
   };
 
   const initAuthTabs = () => {
-    document.querySelectorAll("[data-auth-tab]").forEach((button) => {
-      button.addEventListener("click", () => showAuthForm(button.dataset.authTab));
+    document.querySelectorAll("[data-auth-trigger]").forEach((button) => {
+      button.addEventListener("click", () => showAuthForm(button.dataset.authTrigger));
     });
   };
 
@@ -120,29 +134,6 @@
           if (message) message.textContent = error.message || "Could not continue.";
         }
       });
-    });
-  };
-
-  const initLoginCode = () => {
-    const form = document.querySelector("[data-login-code-form]");
-    if (!form) return;
-
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const message = document.querySelector("[data-login-code-message]");
-      const code = new FormData(form).get("code");
-      if (message) message.textContent = "Checking code...";
-
-      try {
-        await api("/api/auth/login-code", {
-          method: "POST",
-          body: JSON.stringify({ code }),
-        });
-        if (message) message.textContent = "Connected.";
-        renderAccount(await api("/api/me"));
-      } catch (error) {
-        if (message) message.textContent = error.message || "Could not connect account.";
-      }
     });
   };
 
@@ -219,7 +210,6 @@
   initAccount();
   initAuthTabs();
   initPasswordAuth();
-  initLoginCode();
   initLogout();
   initBuildLaunch();
 })();
