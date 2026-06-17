@@ -25,6 +25,12 @@
     if (element) element.textContent = text;
   };
 
+  const setAuthOnlyVisible = (visible) => {
+    document.querySelectorAll("[data-auth-only]").forEach((item) => {
+      item.hidden = !visible;
+    });
+  };
+
   const renderAccount = (account) => {
     const panel = document.querySelector("[data-account-panel]");
     if (!panel) return;
@@ -33,12 +39,14 @@
     panel.classList.toggle("is-setup-required", Boolean(account.setupRequired));
 
     if (account.setupRequired) {
+      setAuthOnlyVisible(false);
       setText("[data-account-state]", "Setup required");
       setText("[data-account-summary]", "The account database is not connected yet. Hosting needs the DB binding and migration.");
       return;
     }
 
     if (!account.authenticated) {
+      setAuthOnlyVisible(false);
       setText("[data-account-state]", "Not connected");
       setText("[data-account-summary]", "Log in to an existing account or create a new browser account.");
       setText("[data-account-name]", "Not connected");
@@ -51,6 +59,7 @@
       return;
     }
 
+    setAuthOnlyVisible(true);
     const tier = Number(account.subscription?.tier || 0);
     setText("[data-account-state]", "Connected");
     setText("[data-account-summary]", tier > 0
