@@ -1,6 +1,8 @@
 const SESSION_COOKIE = "rh_session";
 const SESSION_DAYS = 30;
 const BUILD_SESSION_MINUTES = 15;
+const PASSWORD_ITERATIONS = 210000;
+const PASSWORD_ALGORITHM = "pbkdf2-sha256";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -41,6 +43,14 @@ async function handleApi(request, env, url) {
 
     if (url.pathname === "/api/auth/login-code" && request.method === "POST") {
       return consumeLoginCode(request, env);
+    }
+
+    if (url.pathname === "/api/auth/register" && request.method === "POST") {
+      return registerWithPassword(request, env);
+    }
+
+    if (url.pathname === "/api/auth/login" && request.method === "POST") {
+      return loginWithPassword(request, env);
     }
 
     if (url.pathname === "/api/auth/dev-session" && request.method === "POST") {
@@ -186,6 +196,100 @@ async function consumeLoginCode(request, env) {
 
   await env.DB.prepare("UPDATE login_codes SET consumed_at = ? WHERE id = ?").bind(now, loginCode.id).run();
   return createSessionResponse(request, env, user);
+}
+
+async function registerWithPassword(request, env) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  const password = String(body.password || "");
+  const displayName = cleanDisplayName(body.displayName) || email.split("@")[0];
+
+  const validationError = validateEmailPassword(email, password);
+  if (validationError) return json({ error: validationError }, { status: 400 });
+
+  const existingCredential = await env.DB.prepare(
+    "SELECT id FROM user_credentials WHERE email_normalized = ? LIMIT 1",
+  ).bind(email).first();
+  if (existingCredential) return json({ error: "Email is already registered" }, { status: 409 });
+
+  const existingUser = await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(email).first();
+  if (existingUser) return json({ error: "Email is already attached to another account" }, { status: 409 });
+
+  const passwordRecord = await hashPassword(password);
+  const now = new Date().toISOString();
+  const user = {
+    id: randomId(),
+    email,
+    display_name: displayName,
+    avatar_url: null,
+    created_at: now,
+    updated_at: now,
+  };
+
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT INTO users (id, email, display_name, avatar_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).bind(user.id, user.email, user.display_name, user.avatar_url, user.created_at, user.updated_at),
+    env.DB.prepare(
+      "INSERT INTO user_identities (id, user_id, provider, provider_user_id, provider_username, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).bind(randomId(), user.id, "email", email, email, now, now),
+    env.DB.prepare(
+      `INSERT INTO user_credentials
+        (id, user_id, email, email_normalized, password_hash, password_salt, password_iterations, password_algorithm, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      randomId(),
+      user.id,
+      email,
+      email,
+      passwordRecord.hash,
+      passwordRecord.salt,
+      passwordRecord.iterations,
+      passwordRecord.algorithm,
+      now,
+      now,
+    ),
+  ]);
+
+  return createSessionResponse(request, env, user);
+}
+
+async function loginWithPassword(request, env) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  const password = String(body.password || "");
+  if (!email || !password) return json({ error: "Enter email and password" }, { status: 400 });
+
+  const credential = await env.DB.prepare(
+    `SELECT user_credentials.*, users.email AS user_email, users.display_name, users.avatar_url, users.created_at, users.updated_at
+     FROM user_credentials
+     JOIN users ON users.id = user_credentials.user_id
+     WHERE user_credentials.email_normalized = ?
+     LIMIT 1`,
+  ).bind(email).first();
+
+  if (!credential) return json({ error: "Email or password is wrong" }, { status: 401 });
+
+  const ok = await verifyPassword(password, credential);
+  if (!ok) return json({ error: "Email or password is wrong" }, { status: 401 });
+
+  const now = new Date().toISOString();
+  await env.DB.prepare("UPDATE user_credentials SET last_login_at = ?, updated_at = ? WHERE id = ?")
+    .bind(now, now, credential.id)
+    .run();
+
+  return createSessionResponse(request, env, {
+    id: credential.user_id,
+    email: credential.user_email,
+    display_name: credential.display_name,
+    avatar_url: credential.avatar_url,
+    created_at: credential.created_at,
+    updated_at: credential.updated_at,
+  });
 }
 
 async function createDevSession(request, env) {
@@ -395,6 +499,85 @@ function getCookie(request, name) {
 
 function normalizeCode(value) {
   return String(value || "").replace(/[^a-z0-9]/gi, "").toUpperCase();
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function cleanDisplayName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").slice(0, 80);
+}
+
+function validateEmailPassword(email, password) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Enter a valid email";
+  if (password.length < 8) return "Password must be at least 8 characters";
+  if (password.length > 256) return "Password is too long";
+  return "";
+}
+
+async function hashPassword(password) {
+  const saltBytes = new Uint8Array(16);
+  crypto.getRandomValues(saltBytes);
+  const salt = base64Url(saltBytes);
+  const hashBytes = await pbkdf2(password, saltBytes, PASSWORD_ITERATIONS);
+
+  return {
+    algorithm: PASSWORD_ALGORITHM,
+    iterations: PASSWORD_ITERATIONS,
+    salt,
+    hash: base64Url(hashBytes),
+  };
+}
+
+async function verifyPassword(password, credential) {
+  if (credential.password_algorithm !== PASSWORD_ALGORITHM) return false;
+  const saltBytes = base64UrlToBytes(credential.password_salt);
+  const expected = base64UrlToBytes(credential.password_hash);
+  const actual = await pbkdf2(password, saltBytes, Number(credential.password_iterations || PASSWORD_ITERATIONS));
+  return timingSafeEqual(actual, expected);
+}
+
+async function pbkdf2(password, saltBytes, iterations) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: saltBytes, iterations },
+    key,
+    256,
+  );
+  return new Uint8Array(bits);
+}
+
+function timingSafeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    diff |= a[index] ^ b[index];
+  }
+  return diff === 0;
+}
+
+function base64Url(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlToBytes(value) {
+  const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 async function sha256(value) {

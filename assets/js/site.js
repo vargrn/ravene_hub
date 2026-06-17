@@ -40,10 +40,14 @@
 
     if (!account.authenticated) {
       setText("[data-account-state]", "Not connected");
-      setText("[data-account-summary]", "Browser login will use the same access records as the Mini App.");
+      setText("[data-account-summary]", "Register with email, log in with password, or connect through the Telegram bridge.");
       setText("[data-account-name]", "Not connected");
       setText("[data-account-tier]", "No active tier");
       setText("[data-account-expires]", "-");
+      document.querySelectorAll("[data-auth-tab]").forEach((item) => {
+        item.hidden = false;
+      });
+      showAuthForm(document.querySelector("[data-auth-tab].is-active")?.dataset.authTab || "login");
       return;
     }
 
@@ -62,6 +66,10 @@
 
     const logout = document.querySelector("[data-logout-button]");
     if (logout) logout.hidden = false;
+
+    document.querySelectorAll("[data-auth-form], [data-auth-tab]").forEach((item) => {
+      item.hidden = true;
+    });
   };
 
   const initAccount = async () => {
@@ -73,6 +81,46 @@
       setText("[data-account-state]", "Local preview");
       setText("[data-account-summary]", "Open the hosted Worker build to check account status.");
     }
+  };
+
+  const showAuthForm = (name) => {
+    document.querySelectorAll("[data-auth-tab]").forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.authTab === name);
+    });
+    document.querySelectorAll("[data-auth-form]").forEach((form) => {
+      form.hidden = form.dataset.authForm !== name;
+    });
+  };
+
+  const initAuthTabs = () => {
+    document.querySelectorAll("[data-auth-tab]").forEach((button) => {
+      button.addEventListener("click", () => showAuthForm(button.dataset.authTab));
+    });
+  };
+
+  const initPasswordAuth = () => {
+    document.querySelectorAll('[data-auth-form="login"], [data-auth-form="register"]').forEach((form) => {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const mode = form.dataset.authForm;
+        const message = document.querySelector(`[data-auth-message="${mode}"]`);
+        const body = Object.fromEntries(new FormData(form));
+
+        if (message) message.textContent = mode === "register" ? "Creating account..." : "Logging in...";
+
+        try {
+          await api(`/api/auth/${mode}`, {
+            method: "POST",
+            body: JSON.stringify(body),
+          });
+          if (message) message.textContent = mode === "register" ? "Account created." : "Logged in.";
+          renderAccount(await api("/api/me"));
+          form.reset();
+        } catch (error) {
+          if (message) message.textContent = error.message || "Could not continue.";
+        }
+      });
+    });
   };
 
   const initLoginCode = () => {
@@ -169,6 +217,8 @@
   });
 
   initAccount();
+  initAuthTabs();
+  initPasswordAuth();
   initLoginCode();
   initLogout();
   initBuildLaunch();

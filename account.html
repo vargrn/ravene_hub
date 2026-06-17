@@ -29,7 +29,30 @@
               <div class="compact-tier is-featured" data-tier-indicator="2"><div class="meta"><span>Builds</span></div><h3>Tier 2+</h3></div>
               <div class="compact-tier" data-tier-indicator="3"><div class="meta"><span>Private</span></div><h3>Tier 3</h3></div>
             </div>
-            <form class="connect-form" data-login-code-form>
+            <div class="auth-tabs" role="tablist" aria-label="Account access">
+              <button class="is-active" type="button" data-auth-tab="login">Login</button>
+              <button type="button" data-auth-tab="register">Register</button>
+              <button type="button" data-auth-tab="telegram">Telegram code</button>
+            </div>
+            <form class="connect-form" data-auth-form="login">
+              <label for="login-email">Email</label>
+              <input id="login-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" />
+              <label for="login-password">Password</label>
+              <input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Password" />
+              <button class="btn" type="submit">Log in</button>
+              <p class="form-note" data-auth-message="login">Use the email and password attached to your browser account.</p>
+            </form>
+            <form class="connect-form" data-auth-form="register" hidden>
+              <label for="register-name">Display name</label>
+              <input id="register-name" name="displayName" type="text" autocomplete="name" placeholder="Ravene" />
+              <label for="register-email">Email</label>
+              <input id="register-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" />
+              <label for="register-password">Password</label>
+              <input id="register-password" name="password" type="password" autocomplete="new-password" placeholder="At least 8 characters" />
+              <button class="btn" type="submit">Create account</button>
+              <p class="form-note" data-auth-message="register">Registration creates the same account used for access tiers and future payments.</p>
+            </form>
+            <form class="connect-form" data-auth-form="telegram" data-login-code-form hidden>
               <label for="login-code">One-time code from Telegram bot</label>
               <div class="connect-row">
                 <input id="login-code" name="code" type="text" autocomplete="one-time-code" inputmode="text" placeholder="RAVENE123" />

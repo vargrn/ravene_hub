@@ -909,6 +909,31 @@ button {
   margin-top: 18px;
 }
 
+.auth-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.auth-tabs button {
+  min-height: 34px;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--text-soft);
+  cursor: pointer;
+  padding: 0 12px;
+  text-transform: uppercase;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+
+.auth-tabs button:hover,
+.auth-tabs button.is-active {
+  border-color: rgba(184, 212, 255, 0.30);
+  background: rgba(184, 212, 255, 0.07);
+  color: var(--text);
+}
+
 .connect-row,
 .account-actions {
   display: flex;
@@ -916,6 +941,7 @@ button {
   align-items: center;
 }
 
+.connect-form input,
 .connect-row input {
   min-width: 0;
   flex: 1 1 auto;
@@ -926,9 +952,17 @@ button {
   padding: 0 13px;
   outline: none;
   font: inherit;
+}
+
+.connect-form input {
+  width: 100%;
+}
+
+.connect-row input {
   text-transform: uppercase;
 }
 
+.connect-form input:focus,
 .connect-row input:focus {
   border-color: rgba(184, 212, 255, 0.42);
   box-shadow: 0 0 0 3px rgba(184, 212, 255, 0.08);
