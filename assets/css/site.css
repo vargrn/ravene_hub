@@ -1070,9 +1070,9 @@ button {
 
 .build-library-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 380px) minmax(420px, 640px);
-  justify-content: space-between;
-  gap: 28px;
+  grid-template-columns: 312px minmax(0, 760px);
+  justify-content: start;
+  gap: 8px;
   align-items: start;
   margin-bottom: 34px;
 }
@@ -1084,7 +1084,7 @@ button {
 
 .build-game-poster {
   width: 100%;
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 1 / 1;
   object-fit: cover;
   object-position: center;
   display: block;
@@ -1093,23 +1093,25 @@ button {
 }
 
 .build-game-copy {
-  padding: 18px;
+  padding: 16px 18px 18px;
 }
 
 .build-game-copy h2 {
+  font-size: 28px;
+  line-height: 1.06;
   margin-bottom: 8px;
 }
 
 .build-library {
   display: grid;
-  gap: 13px;
-  width: min(100%, 640px);
-  margin-left: auto;
+  gap: 12px;
+  width: 100%;
+  margin-left: 0;
 }
 
 .build-row {
   display: block;
-  min-height: 112px;
+  min-height: 106px;
   transition:
     border-color 0.18s ease,
     background 0.18s ease,
