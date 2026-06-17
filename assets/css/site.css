@@ -1070,10 +1070,10 @@ button {
 
 .build-library-layout {
   display: grid;
-  grid-template-columns: 312px minmax(0, 760px);
-  justify-content: start;
-  gap: 8px;
+  grid-template-columns: 420px minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
+  margin-top: 18px;
   margin-bottom: 34px;
 }
 
@@ -1084,7 +1084,7 @@ button {
 
 .build-game-poster {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 16 / 10;
   object-fit: cover;
   object-position: center;
   display: block;
@@ -1111,7 +1111,7 @@ button {
 
 .build-row {
   display: block;
-  min-height: 106px;
+  min-height: 116px;
   transition:
     border-color 0.18s ease,
     background 0.18s ease,
