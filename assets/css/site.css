@@ -762,6 +762,10 @@ button {
   line-height: 1.68;
 }
 
+.card-link {
+  margin-top: 16px;
+}
+
 .locked-bar {
   display: flex;
   align-items: center;
@@ -1165,9 +1169,10 @@ button {
   color: var(--text-muted);
   font-family: "Exo2", serif;
   font-size: 12px;
-  text-transform: uppercase;
+  text-transform: none;
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
+  text-align: center;
   gap: 18px;
   border-top: 1px solid var(--line-soft);
   flex-shrink: 0;
