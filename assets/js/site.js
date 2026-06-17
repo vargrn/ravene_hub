@@ -31,8 +31,15 @@
     });
   };
 
+  const setAuthNavVisible = (visible) => {
+    document.querySelectorAll("[data-auth-nav]").forEach((item) => {
+      item.hidden = !visible;
+    });
+  };
+
   const renderAccount = (account) => {
     const panel = document.querySelector("[data-account-panel]");
+    setAuthNavVisible(Boolean(account.authenticated));
     if (!panel) return;
 
     panel.classList.toggle("is-connected", Boolean(account.authenticated));
@@ -82,11 +89,12 @@
   };
 
   const initAccount = async () => {
-    if (!document.querySelector("[data-account-panel]")) return;
+    if (!document.querySelector("[data-account-panel], [data-auth-nav]")) return;
 
     try {
       renderAccount(await api("/api/me"));
     } catch {
+      setAuthNavVisible(false);
       setText("[data-account-state]", "Local preview");
       setText("[data-account-summary]", "Open the hosted Worker build to check account status.");
     }
