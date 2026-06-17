@@ -77,6 +77,8 @@ button {
   z-index: 1;
   min-height: 100vh;
   padding-top: var(--topbar-height);
+  display: flex;
+  flex-direction: column;
 }
 
 .topbar {
@@ -179,6 +181,7 @@ button {
   width: min(100%, var(--max-width));
   margin: 0 auto;
   padding: 28px 22px 0;
+  flex: 1 0 auto;
 }
 
 .hero-cover {
@@ -1080,7 +1083,7 @@ button {
 
 .footer {
   width: min(100%, var(--max-width));
-  margin: 58px auto 0;
+  margin: auto auto 0;
   padding: 44px 22px 30px;
   color: var(--text-muted);
   font-family: "Exo2", serif;
@@ -1090,6 +1093,7 @@ button {
   justify-content: space-between;
   gap: 18px;
   border-top: 1px solid var(--line-soft);
+  flex-shrink: 0;
 }
 
 @media (max-width: 980px) {
