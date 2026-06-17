@@ -27,6 +27,14 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 html,
@@ -1084,7 +1092,6 @@ button {
 
 .build-game-poster {
   width: 100%;
-  aspect-ratio: 16 / 10;
   object-fit: cover;
   object-position: center;
   display: block;
