@@ -13,6 +13,10 @@ cp "$project_root/.openai/hosting.json" "$dist_root/.openai/hosting.json"
 cp "$project_root"/*.html "$dist_root/client/"
 cp -R "$project_root/assets" "$dist_root/client/assets"
 
+if [ -d "$project_root/builds" ]; then
+  cp -R "$project_root/builds" "$dist_root/client/builds"
+fi
+
 if [ -d "$project_root/db/migrations" ]; then
   mkdir -p "$dist_root/.openai/drizzle"
   cp "$project_root"/db/migrations/*.sql "$dist_root/.openai/drizzle/"
