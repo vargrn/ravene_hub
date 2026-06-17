@@ -768,9 +768,6 @@ button {
 
 .mini-app-panel {
   min-height: 260px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
 }
 
 .mini-app-panel .text {
