@@ -1,7 +1,7 @@
 const SESSION_COOKIE = "rh_session";
 const SESSION_DAYS = 30;
 const BUILD_SESSION_MINUTES = 15;
-const PASSWORD_ITERATIONS = 210000;
+const PASSWORD_ITERATIONS = 60000;
 const PASSWORD_ALGORITHM = "pbkdf2-sha256";
 
 const jsonHeaders = {
