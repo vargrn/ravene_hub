@@ -766,6 +766,18 @@ button {
   margin-top: 16px;
 }
 
+.mini-app-panel {
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.mini-app-panel .text {
+  max-width: 520px;
+  margin-top: 12px;
+}
+
 .locked-bar {
   display: flex;
   align-items: center;
