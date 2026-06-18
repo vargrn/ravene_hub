@@ -173,9 +173,14 @@ async function workspaceIdentity(request, env) {
 
   const encodedName = request.headers.get("oai-authenticated-user-full-name");
   const encoding = request.headers.get("oai-authenticated-user-full-name-encoding");
-  const displayName = encoding === "percent-encoded-utf-8" && encodedName
-    ? decodeURIComponent(encodedName)
-    : email;
+  let displayName = email;
+  if (encoding === "percent-encoded-utf-8" && encodedName) {
+    try {
+      displayName = decodeURIComponent(encodedName);
+    } catch {
+      displayName = email;
+    }
+  }
 
   const user = await upsertUser(env, { email, displayName });
   await upsertIdentity(env, user.id, {
@@ -323,9 +328,15 @@ async function createDevSession(request, env) {
     return json({ error: "Developer login is disabled" }, { status: 404 });
   }
 
+  const body = await readJson(request);
+  const expectedSecret = String(env.DEV_LOGIN_SECRET || "");
+  const providedSecret = String(request.headers.get("x-dev-login-secret") || body.devLoginSecret || "");
+  if (!expectedSecret || !timingSafeStringEqual(providedSecret, expectedSecret)) {
+    return json({ error: "Developer login secret is required" }, { status: 403 });
+  }
+
   if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
 
-  const body = await readJson(request);
   const user = await upsertUser(env, {
     email: body.email || "dev@ravene.local",
     displayName: body.displayName || "Ravene",
@@ -1002,8 +1013,18 @@ function withSecurityHeaders(response) {
 
 function getCookie(request, name) {
   const cookie = request.headers.get("cookie") || "";
-  const part = cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith(`${name}=`));
-  return part ? decodeURIComponent(part.slice(name.length + 1)) : "";
+  const part = cookie
+    .split(";")
+    .map((item) => item.trim())
+    .find((item) => item.startsWith(`${name}=`));
+
+  if (!part) return "";
+
+  try {
+    return decodeURIComponent(part.slice(name.length + 1));
+  } catch {
+    return "";
+  }
 }
 
 function normalizeCode(value) {
@@ -1080,6 +1101,10 @@ function timingSafeEqual(a, b) {
     diff |= a[index] ^ b[index];
   }
   return diff === 0;
+}
+
+function timingSafeStringEqual(a, b) {
+  return timingSafeEqual(new TextEncoder().encode(String(a)), new TextEncoder().encode(String(b)));
 }
 
 function base64Url(bytes) {
