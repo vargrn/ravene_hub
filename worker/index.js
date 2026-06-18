@@ -90,6 +90,13 @@ async function handleApi(request, env, url) {
 
     return json({ error: "Not found" }, { status: 404 });
   } catch (error) {
+    if (isMissingSchemaError(error)) {
+      return json(
+        { error: "Database migration is missing. Apply the SQL migrations from db/migrations before using accounts and billing." },
+        { status: 503 },
+      );
+    }
+
     return json(
       { error: "Server error", detail: env.DEBUG_ERRORS === "1" ? String(error?.message || error) : undefined },
       { status: 500 },
@@ -481,24 +488,29 @@ async function createMoonPayCheckoutSession(request, env) {
   const sessionId = randomId();
   const checkoutToken = randomToken();
 
-  await env.DB.prepare(
-    `INSERT INTO moonpay_checkout_sessions
-      (id, user_id, tier, paylink_id, status, checkout_token, created_at, updated_at, raw_payload)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(
-    sessionId,
-    account.user.id,
-    tier,
-    paylinkId,
-    "pending",
-    checkoutToken,
-    now,
-    now,
-    JSON.stringify({
-      userAgent: request.headers.get("user-agent") || "",
-      referer: request.headers.get("referer") || "",
-    }),
-  ).run();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO moonpay_checkout_sessions
+        (id, user_id, tier, paylink_id, status, checkout_token, created_at, updated_at, raw_payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      sessionId,
+      account.user.id,
+      tier,
+      paylinkId,
+      "pending",
+      checkoutToken,
+      now,
+      now,
+      JSON.stringify({
+        userAgent: request.headers.get("user-agent") || "",
+        referer: request.headers.get("referer") || "",
+      }),
+    ).run();
+  } catch (error) {
+    if (isMissingSchemaError(error)) return moonPayMigrationMissingResponse();
+    throw error;
+  }
 
   return json({
     ok: true,
@@ -533,10 +545,17 @@ async function handleMoonPayWebhook(request, env) {
     if (String(error?.message || error).includes("UNIQUE")) {
       return json({ ok: true, duplicate: true });
     }
+    if (isMissingSchemaError(error)) return moonPayMigrationMissingResponse();
     throw error;
   }
 
-  await applyMoonPayWebhookEvent(env, payload, eventType);
+  try {
+    await applyMoonPayWebhookEvent(env, payload, eventType);
+  } catch (error) {
+    if (isMissingSchemaError(error)) return moonPayMigrationMissingResponse();
+    throw error;
+  }
+
   return json({ ok: true });
 }
 
@@ -1140,13 +1159,22 @@ async function upsertIdentity(env, userId, identity) {
 
 async function activeSubscription(env, userId) {
   const now = new Date().toISOString();
-  const row = await env.DB.prepare(
-    `SELECT tier, status, source, starts_at, expires_at
-     FROM subscriptions
-     WHERE user_id = ? AND status = 'active' AND expires_at > ? AND source = 'moonpay'
-     ORDER BY tier DESC, expires_at DESC
-     LIMIT 1`,
-  ).bind(userId, now).first();
+  let row = null;
+
+  try {
+    row = await env.DB.prepare(
+      `SELECT tier, status, source, starts_at, expires_at
+       FROM subscriptions
+       WHERE user_id = ? AND status = 'active' AND expires_at > ? AND source = 'moonpay'
+       ORDER BY tier DESC, expires_at DESC
+       LIMIT 1`,
+    ).bind(userId, now).first();
+  } catch (error) {
+    if (isMissingSchemaError(error)) {
+      return emptySubscription();
+    }
+    throw error;
+  }
 
   if (!row) {
     const latestMoonPay = await latestMoonPaySubscription(env, userId);
@@ -1179,26 +1207,32 @@ async function latestMoonPaySubscription(env, userId, tier = null) {
   if (!env.DB) return null;
 
   const tierFilter = tier ? "AND tier = ?" : "";
-  const statement = env.DB.prepare(
-    `SELECT moonpay_subscription_id, tier, status, customer_email, payer_wallet, renewal_date, updated_at
-     FROM moonpay_subscriptions
-     WHERE user_id = ? ${tierFilter}
-     ORDER BY
-       CASE status
-         WHEN 'active' THEN 1
-         WHEN 'renewed' THEN 2
-         WHEN 'pending' THEN 3
-         WHEN 'cancelled' THEN 4
-         WHEN 'expired' THEN 5
-         ELSE 6
-       END,
-       updated_at DESC
-     LIMIT 1`,
-  );
 
-  return tier
-    ? statement.bind(userId, tier).first()
-    : statement.bind(userId).first();
+  try {
+    const statement = env.DB.prepare(
+      `SELECT moonpay_subscription_id, tier, status, customer_email, payer_wallet, renewal_date, updated_at
+       FROM moonpay_subscriptions
+       WHERE user_id = ? ${tierFilter}
+       ORDER BY
+         CASE status
+           WHEN 'active' THEN 1
+           WHEN 'renewed' THEN 2
+           WHEN 'pending' THEN 3
+           WHEN 'cancelled' THEN 4
+           WHEN 'expired' THEN 5
+           ELSE 6
+         END,
+         updated_at DESC
+       LIMIT 1`,
+    );
+
+    return await (tier
+      ? statement.bind(userId, tier).first()
+      : statement.bind(userId).first());
+  } catch (error) {
+    if (isMissingSchemaError(error, ["moonpay_subscriptions"])) return null;
+    throw error;
+  }
 }
 
 function emptySubscription(latestMoonPay = null) {
@@ -1218,6 +1252,29 @@ function emptySubscription(latestMoonPay = null) {
     moonpayRenewalDate: latestMoonPay?.renewal_date || null,
     canCancelRenewal: false,
   };
+}
+
+function isMissingSchemaError(error, tableNames = []) {
+  const message = String(error?.message || error || "").toLowerCase();
+  if (!message) return false;
+
+  const looksLikeMissingSchema =
+    message.includes("no such table") ||
+    message.includes("no such column") ||
+    message.includes("has no column named") ||
+    message.includes("unknown column") ||
+    message.includes("table") && message.includes("does not exist");
+
+  if (!looksLikeMissingSchema) return false;
+  if (!tableNames.length) return true;
+  return tableNames.some((tableName) => message.includes(String(tableName).toLowerCase()));
+}
+
+function moonPayMigrationMissingResponse() {
+  return json(
+    { error: "MoonPay Commerce database migration is missing. Apply db/migrations/0004_moonpay_subscriptions.sql or 0005_moonpay_commerce_compat.sql." },
+    { status: 503 },
+  );
 }
 
 async function readJson(request) {
