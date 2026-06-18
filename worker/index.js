@@ -544,8 +544,12 @@ async function applyPaypalWebhookEvent(env, event) {
     return;
   }
 
+  if (eventType === "BILLING.SUBSCRIPTION.CANCELLED") {
+    await cancelPaypalRenewal(env, subscriptionId, resource);
+    return;
+  }
+
   if (
-    eventType === "BILLING.SUBSCRIPTION.CANCELLED" ||
     eventType === "BILLING.SUBSCRIPTION.SUSPENDED" ||
     eventType === "BILLING.SUBSCRIPTION.EXPIRED" ||
     eventType === "BILLING.SUBSCRIPTION.PAYMENT.FAILED" ||
@@ -572,6 +576,21 @@ async function grantPaypalAccess(env, userId, tier, subscription) {
   ]);
 
   return { expiresAt };
+}
+
+async function cancelPaypalRenewal(env, subscriptionId, resource) {
+  const now = new Date().toISOString();
+  const existing = await env.DB.prepare(
+    "SELECT current_period_end FROM paypal_subscriptions WHERE paypal_subscription_id = ? LIMIT 1",
+  ).bind(subscriptionId).first();
+
+  if (!existing) return;
+
+  await env.DB.prepare(
+    `UPDATE paypal_subscriptions
+     SET status = ?, current_period_end = COALESCE(current_period_end, ?), raw_payload = ?, updated_at = ?
+     WHERE paypal_subscription_id = ?`,
+  ).bind("cancelled", existing.current_period_end || null, JSON.stringify(resource || {}), now, subscriptionId).run();
 }
 
 async function revokePaypalAccess(env, subscriptionId, eventType, resource) {
@@ -776,6 +795,7 @@ function paypalPeriodEnd(subscription) {
 
 function paypalAccessStatus(eventType) {
   if (eventType === "BILLING.SUBSCRIPTION.EXPIRED") return "expired";
+  if (eventType === "BILLING.SUBSCRIPTION.CANCELLED") return "cancelled";
   if (eventType === "BILLING.SUBSCRIPTION.PAYMENT.FAILED") return "payment_failed";
   if (eventType === "BILLING.SUBSCRIPTION.SUSPENDED") return "suspended";
   return "revoked";
