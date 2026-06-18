@@ -56,6 +56,9 @@
 
   const renderAccount = (account) => {
     const panel = document.querySelector("[data-account-panel]");
+    const subscriptionActions = document.querySelector("[data-subscription-actions]");
+    const cancelButton = document.querySelector("[data-cancel-subscription]");
+    const subscriptionMessage = document.querySelector("[data-subscription-message]");
     setAuthNavVisible(Boolean(account.authenticated));
     if (!panel) return;
 
@@ -66,6 +69,7 @@
       setAuthOnlyVisible(false);
       setText("[data-account-state]", "Setup required");
       setText("[data-account-summary]", "The account database is not connected yet. Hosting needs the DB binding and migration.");
+      if (subscriptionActions) subscriptionActions.hidden = true;
       return;
     }
 
@@ -76,6 +80,10 @@
       setText("[data-account-name]", "Not connected");
       setText("[data-account-tier]", "No active tier");
       setText("[data-account-expires]", "-");
+      setText("[data-account-access-status]", "-");
+      setText("[data-account-renewal-status]", "-");
+      setText("[data-account-source]", "-");
+      if (subscriptionActions) subscriptionActions.hidden = true;
       document.querySelectorAll("[data-auth-gate], [data-auth-trigger]").forEach((item) => {
         item.hidden = false;
       });
@@ -85,13 +93,31 @@
 
     setAuthOnlyVisible(true);
     const tier = Number(account.subscription?.tier || 0);
+    const renewalStatus = account.subscription?.renewalStatus || account.subscription?.status || "none";
+    const paymentSource = account.subscription?.paymentSource || account.subscription?.source || null;
+    const canCancelRenewal = Boolean(account.subscription?.canCancelRenewal);
     setText("[data-account-state]", "Connected");
     setText("[data-account-summary]", tier > 0
-      ? "Account is connected and active access was found."
+      ? renewalStatus === "cancelled"
+        ? "Account is connected. Paid access remains active until the expiry date."
+        : "Account is connected and active access was found."
       : "Account is connected. No active membership tier is attached yet.");
     setText("[data-account-name]", account.user?.displayName || "Connected account");
     setText("[data-account-tier]", tier > 0 ? `Tier ${tier}` : "No active tier");
     setText("[data-account-expires]", formatDate(account.subscription?.expiresAt));
+    setText("[data-account-access-status]", accountAccessLabel(account.subscription));
+    setText("[data-account-renewal-status]", renewalStatusLabel(renewalStatus, tier));
+    setText("[data-account-source]", paymentSourceLabel(paymentSource));
+
+    if (subscriptionActions) subscriptionActions.hidden = !canCancelRenewal;
+    if (cancelButton) cancelButton.hidden = !canCancelRenewal;
+    if (subscriptionMessage) {
+      subscriptionMessage.textContent = canCancelRenewal
+        ? "Cancellation stops future monthly payments. Paid access remains until the expiry date."
+        : renewalStatus === "cancelled" && tier > 0
+          ? "Renewal is cancelled. Paid access remains until the expiry date."
+          : "";
+    }
 
     document.querySelectorAll("[data-tier-indicator]").forEach((item) => {
       item.classList.toggle("is-unlocked", tier >= Number(item.dataset.tierIndicator || 0));
@@ -105,6 +131,39 @@
     });
   };
 
+  const accountAccessLabel = (subscription) => {
+    const tier = Number(subscription?.tier || 0);
+    if (tier > 0) return "Active";
+    if (subscription?.renewalStatus === "payment_failed") return "Payment failed";
+    if (subscription?.renewalStatus === "suspended") return "Suspended";
+    if (subscription?.renewalStatus === "expired") return "Expired";
+    if (subscription?.renewalStatus === "cancelled") return "Ended";
+    return "No active access";
+  };
+
+  const renewalStatusLabel = (status, tier) => {
+    if (Number(tier || 0) <= 0 && (!status || status === "none")) return "-";
+
+    const labels = {
+      active: "Auto-renews monthly",
+      cancelled: Number(tier || 0) > 0 ? "Cancelled; access remains" : "Cancelled",
+      payment_failed: "Payment failed",
+      suspended: "Suspended",
+      expired: "Expired",
+      pending: "Pending",
+      revoked: "Revoked",
+      none: "-",
+    };
+
+    return labels[status] || status || "-";
+  };
+
+  const paymentSourceLabel = (source) => {
+    if (source === "paypal") return "PayPal";
+    if (!source) return "-";
+    return source;
+  };
+
   const initAccount = async () => {
     if (!document.querySelector("[data-account-panel], [data-auth-nav]")) return;
 
@@ -115,6 +174,32 @@
       setText("[data-account-state]", "Local preview");
       setText("[data-account-summary]", "Open the hosted Worker build to check account status.");
     }
+  };
+
+  const initSubscriptionCancel = () => {
+    const button = document.querySelector("[data-cancel-subscription]");
+    const message = document.querySelector("[data-subscription-message]");
+    if (!button) return;
+
+    button.addEventListener("click", async () => {
+      const confirmed = window.confirm("Cancel PayPal renewal? Paid access will remain until the expiry date.");
+      if (!confirmed) return;
+
+      const previous = button.textContent;
+      button.disabled = true;
+      if (message) message.textContent = "Cancelling PayPal renewal...";
+
+      try {
+        const result = await api("/api/paypal/subscription/cancel", { method: "POST" });
+        renderAccount(result.account || await api("/api/me"));
+        if (message) message.textContent = "Renewal is cancelled. Paid access remains until the expiry date.";
+      } catch (error) {
+        if (message) message.textContent = error.message || "Could not cancel PayPal renewal.";
+      } finally {
+        button.disabled = false;
+        button.textContent = previous;
+      }
+    });
   };
 
   const closeAuthForms = () => {
@@ -474,6 +559,7 @@
   initAuthTabs();
   initPasswordAuth();
   initLogout();
+  initSubscriptionCancel();
   initBuildLaunch();
   initPayPalSubscriptions();
   initPostComments();

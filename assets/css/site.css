@@ -1119,6 +1119,19 @@ button {
   overflow-wrap: anywhere;
 }
 
+.subscription-actions {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+  justify-items: start;
+  margin-top: 14px;
+  padding-top: 2px;
+}
+
+.subscription-actions .btn {
+  min-width: 190px;
+}
+
 .connect-form {
   display: grid;
   gap: 9px;

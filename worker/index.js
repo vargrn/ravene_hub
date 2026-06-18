@@ -79,6 +79,10 @@ async function handleApi(request, env, url) {
       return activatePaypalSubscription(request, env);
     }
 
+    if (url.pathname === "/api/paypal/subscription/cancel" && request.method === "POST") {
+      return cancelActivePaypalSubscription(request, env);
+    }
+
     if (url.pathname === "/api/paypal/webhook" && request.method === "POST") {
       return handlePaypalWebhook(request, env);
     }
@@ -494,6 +498,37 @@ async function activatePaypalSubscription(request, env) {
   });
 }
 
+async function cancelActivePaypalSubscription(request, env) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+
+  const subscriptionId = cleanPaypalId(account.subscription?.paypalSubscriptionId);
+  if (!subscriptionId || !account.subscription?.canCancelRenewal) {
+    return json({ error: "No active PayPal renewal was found" }, { status: 409 });
+  }
+
+  await paypalRequest(env, `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, {
+    method: "POST",
+    body: {
+      reason: "Cancelled from Ravene Hub account page",
+    },
+  });
+
+  await cancelPaypalRenewal(env, subscriptionId, {
+    id: subscriptionId,
+    status: "CANCELLED",
+    cancelled_from: "ravene_hub_account",
+    cancelled_at: new Date().toISOString(),
+  });
+
+  return json({
+    ok: true,
+    account: await currentAccount(request, env),
+  });
+}
+
 async function handlePaypalWebhook(request, env) {
   if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
 
@@ -872,7 +907,14 @@ async function activeSubscription(env, userId) {
      LIMIT 1`,
   ).bind(userId, now).first();
 
-  if (!row) return emptySubscription();
+  if (!row) {
+    const latestPaypal = await latestPaypalSubscription(env, userId);
+    return emptySubscription(latestPaypal);
+  }
+
+  const paypal = row.source === "paypal"
+    ? await latestPaypalSubscription(env, userId, Number(row.tier))
+    : null;
 
   return {
     tier: Number(row.tier),
@@ -882,18 +924,54 @@ async function activeSubscription(env, userId) {
     expiresAt: row.expires_at,
     canReadLocked: Number(row.tier) >= 1,
     canLaunchBuilds: Number(row.tier) >= 2,
+    paymentSource: row.source,
+    renewalStatus: paypal?.status || (row.source === "paypal" ? "active" : row.status),
+    paypalSubscriptionId: paypal?.paypal_subscription_id || null,
+    paypalPayerEmail: paypal?.payer_email || null,
+    canCancelRenewal: row.source === "paypal" && paypal?.status === "active",
   };
 }
 
-function emptySubscription() {
+async function latestPaypalSubscription(env, userId, tier = null) {
+  if (!env.DB) return null;
+
+  const tierFilter = tier ? "AND tier = ?" : "";
+  const statement = env.DB.prepare(
+    `SELECT paypal_subscription_id, tier, status, payer_email, current_period_end, updated_at
+     FROM paypal_subscriptions
+     WHERE user_id = ? ${tierFilter}
+     ORDER BY
+       CASE status
+         WHEN 'active' THEN 1
+         WHEN 'cancelled' THEN 2
+         WHEN 'payment_failed' THEN 3
+         WHEN 'suspended' THEN 4
+         WHEN 'expired' THEN 5
+         ELSE 6
+       END,
+       updated_at DESC
+     LIMIT 1`,
+  );
+
+  return tier
+    ? statement.bind(userId, tier).first()
+    : statement.bind(userId).first();
+}
+
+function emptySubscription(latestPaypal = null) {
   return {
     tier: 0,
-    status: "none",
-    source: null,
+    status: latestPaypal?.status || "none",
+    source: latestPaypal ? "paypal" : null,
     startsAt: null,
     expiresAt: null,
     canReadLocked: false,
     canLaunchBuilds: false,
+    paymentSource: latestPaypal ? "paypal" : null,
+    renewalStatus: latestPaypal?.status || "none",
+    paypalSubscriptionId: latestPaypal?.paypal_subscription_id || null,
+    paypalPayerEmail: latestPaypal?.payer_email || null,
+    canCancelRenewal: false,
   };
 }
 
