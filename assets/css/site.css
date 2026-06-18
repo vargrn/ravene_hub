@@ -364,6 +364,10 @@ button {
   margin-top: 18px;
 }
 
+.account-layout {
+  grid-template-columns: minmax(0, 1fr) 420px;
+}
+
 .single-layout {
   margin-top: 18px;
 }

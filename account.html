@@ -13,11 +13,11 @@
     <header class="topbar"><div class="topbar-inner"><a class="brand" href="index.html"><img class="brand-mark" src="assets/media/profile/avatar.webp" alt="" /><span class="brand-name"><strong>Ravene Hub</strong></span></a><nav class="nav"><a href="index.html">Home</a><a href="membership.html" data-auth-nav hidden>Memberships</a><a href="builds.html">Builds</a><a class="is-active" href="account.html">Account</a></nav></div></header>
     <main class="main">
       <section class="page-title"><h1>Account</h1><p data-auth-only hidden>Browser identity, access status, active tier, payment source, and future session controls.</p></section>
-      <div class="layout">
+      <div class="layout account-layout">
         <section class="stack">
           <article class="glass card" id="connect-account" data-account-panel>
             <div class="meta" data-auth-only hidden><span>Current account</span><span data-account-state>Checking</span></div>
-            <h2>Access Status</h2>
+            <h2>Account</h2>
             <p class="text" data-account-summary>Checking browser session and access records...</p>
             <div class="account-status" data-auth-only hidden>
               <div><span>Identity</span><strong data-account-name>Not connected</strong></div>
@@ -55,20 +55,13 @@
               <button class="btn btn-secondary" type="button" data-logout-button hidden>Log out</button>
             </div>
           </article>
-          <article class="glass card mini-app-panel">
-            <div class="meta"><span>Mini App</span></div>
-            <h2>BioPunk Mini App</h2>
-            <p class="text">Open the Telegram Mini App for synchronized access and community features.</p>
-            <a class="btn btn-wide card-link" href="https://biopunk-mini-app.pages.dev/" target="_blank" rel="noopener">Open Mini App</a>
-          </article>
           <article class="glass card" data-auth-only hidden><div class="meta"><span>Operations</span></div><h2>Access ledger</h2><p class="text">The backend should treat Telegram Mini App and browser accounts as two entrances into the same user and subscription records.</p><ul class="tier-list"><li>Browser identity binds to existing user record</li><li>Provider payments create payment rows</li><li>Paid webhooks extend subscriptions</li><li>Build launch creates signed sessions</li></ul></article>
         </section>
         <aside class="sidebar">
           <section class="glass card"><div class="meta"><span>Identity</span></div><h3>Account registration</h3><br><p class="text">The account will provide access to more private content in the Hub.</p></section>
           <section class="glass card"><div class="meta"><span>Fallback</span></div><h3>Telegram bridge</h3><br><p class="text">Ability to link a Telegram account to the user account to synchronize access with the BioPunk Mini App.</p></section>
           <section class="glass card"><div class="meta"><span>Security</span></div><h3>Early Access</h3><br><p class="text">The account token is used to verify access to the game’s Early Access content.</p></section>
-          <section class="glass card"><div class="meta"><span>Feedback</span></div><h3>Comments</h3><br><p class="text">Ability to comment on posts.</p></section>
-          <section class="glass card"><div class="meta"><span>Memberships</span></div><h3>Support</h3><br><p class="text">Send the author coffee and cat food.</p></section>
+          <section class="glass card"><div class="meta"><span>Memberships</span></div><h3>Support</h3><br><p class="text">Ability to send the author coffee and cat food.</p></section>
         </aside>
       </div>
     </main>
