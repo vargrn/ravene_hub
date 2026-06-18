@@ -3,6 +3,8 @@ const SESSION_DAYS = 30;
 const BUILD_SESSION_MINUTES = 15;
 const PASSWORD_ITERATIONS = 60000;
 const PASSWORD_ALGORITHM = "pbkdf2-sha256";
+const PAYPAL_SUBSCRIPTION_DAYS_FALLBACK = 32;
+const PAYPAL_ALLOWED_MODES = new Set(["sandbox", "live"]);
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -67,6 +69,18 @@ async function handleApi(request, env, url) {
 
     if (url.pathname === "/api/logout" && request.method === "POST") {
       return clearSession();
+    }
+
+    if (url.pathname === "/api/paypal/config" && request.method === "GET") {
+      return paypalPublicConfig(request, env);
+    }
+
+    if (url.pathname === "/api/paypal/subscription/activate" && request.method === "POST") {
+      return activatePaypalSubscription(request, env);
+    }
+
+    if (url.pathname === "/api/paypal/webhook" && request.method === "POST") {
+      return handlePaypalWebhook(request, env);
     }
 
     if (url.pathname === "/api/builds/current/launch" && request.method === "POST") {
@@ -427,6 +441,348 @@ function clearSession() {
       },
     },
   );
+}
+
+async function paypalPublicConfig(request, env) {
+  const account = await currentAccount(request, env);
+  const config = paypalConfig(env);
+
+  return json({
+    configured: Boolean(config.clientId && config.plans[1] && config.plans[2]),
+    authenticated: Boolean(account.authenticated),
+    mode: config.mode,
+    clientId: config.clientId || null,
+    currency: config.currency,
+    plans: {
+      1: config.plans[1] || null,
+      2: config.plans[2] || null,
+    },
+  });
+}
+
+async function activatePaypalSubscription(request, env) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+
+  const body = await readJson(request);
+  const subscriptionId = cleanPaypalId(body.subscriptionId);
+  const tier = Number(body.tier || 0);
+  const config = paypalConfig(env);
+  const expectedPlanId = config.plans[tier];
+
+  if (!subscriptionId) return json({ error: "PayPal subscription ID is missing" }, { status: 400 });
+  if (!expectedPlanId) return json({ error: "This PayPal tier is not configured yet" }, { status: 503 });
+
+  const subscription = await paypalRequest(env, `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`);
+  if (subscription.plan_id !== expectedPlanId) {
+    return json({ error: "PayPal plan does not match selected tier" }, { status: 400 });
+  }
+
+  if (subscription.status !== "ACTIVE") {
+    await upsertPaypalSubscription(env, account.user.id, tier, subscription, "pending");
+    return json({ error: `PayPal subscription is ${subscription.status || "not active"} yet` }, { status: 409 });
+  }
+
+  const access = await grantPaypalAccess(env, account.user.id, tier, subscription);
+  return json({
+    ok: true,
+    tier,
+    subscriptionId,
+    expiresAt: access.expiresAt,
+  });
+}
+
+async function handlePaypalWebhook(request, env) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+
+  const rawBody = await request.text();
+  const event = JSON.parse(rawBody || "{}");
+  if (!event.id || !event.event_type) return json({ error: "Webhook event is malformed" }, { status: 400 });
+
+  await verifyPaypalWebhook(request, env, event);
+
+  const now = new Date().toISOString();
+  try {
+    await env.DB.prepare(
+      "INSERT INTO webhook_events (id, provider, provider_event_id, event_type, received_at, raw_payload) VALUES (?, ?, ?, ?, ?, ?)",
+    ).bind(randomId(), "paypal", event.id, event.event_type, now, rawBody).run();
+  } catch (error) {
+    if (String(error?.message || error).includes("UNIQUE")) {
+      return json({ ok: true, duplicate: true });
+    }
+    throw error;
+  }
+
+  await applyPaypalWebhookEvent(env, event);
+  return json({ ok: true });
+}
+
+async function applyPaypalWebhookEvent(env, event) {
+  const resource = event.resource || {};
+  const eventType = event.event_type || "";
+  const subscriptionId = paypalSubscriptionIdFromResource(resource, eventType);
+
+  if (!subscriptionId) return;
+
+  if (
+    eventType === "BILLING.SUBSCRIPTION.ACTIVATED" ||
+    eventType === "BILLING.SUBSCRIPTION.UPDATED" ||
+    eventType === "PAYMENT.SALE.COMPLETED"
+  ) {
+    const subscription = await paypalRequest(env, `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`);
+    const userId = await userIdForPaypalSubscription(env, subscription);
+    const tier = tierForPaypalPlan(env, subscription.plan_id);
+    if (userId && tier && subscription.status === "ACTIVE") {
+      await grantPaypalAccess(env, userId, tier, subscription);
+    }
+
+    if (eventType === "PAYMENT.SALE.COMPLETED") {
+      await recordPaypalPayment(env, userId, tier || 0, resource, event);
+    }
+    return;
+  }
+
+  if (
+    eventType === "BILLING.SUBSCRIPTION.CANCELLED" ||
+    eventType === "BILLING.SUBSCRIPTION.SUSPENDED" ||
+    eventType === "BILLING.SUBSCRIPTION.EXPIRED" ||
+    eventType === "BILLING.SUBSCRIPTION.PAYMENT.FAILED" ||
+    eventType === "PAYMENT.SALE.REVERSED"
+  ) {
+    await revokePaypalAccess(env, subscriptionId, eventType, resource);
+  }
+}
+
+async function grantPaypalAccess(env, userId, tier, subscription) {
+  const now = new Date().toISOString();
+  const startsAt = subscription.start_time || subscription.create_time || now;
+  const expiresAt = paypalPeriodEnd(subscription) || addDays(new Date(), PAYPAL_SUBSCRIPTION_DAYS_FALLBACK).toISOString();
+
+  await upsertPaypalSubscription(env, userId, tier, subscription, "active", expiresAt);
+
+  await env.DB.batch([
+    env.DB.prepare(
+      "UPDATE subscriptions SET status = 'revoked', updated_at = ? WHERE user_id = ? AND source = 'paypal' AND status = 'active'",
+    ).bind(now, userId),
+    env.DB.prepare(
+      "INSERT INTO subscriptions (id, user_id, tier, status, source, starts_at, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).bind(randomId(), userId, tier, "active", "paypal", startsAt, expiresAt, now, now),
+  ]);
+
+  return { expiresAt };
+}
+
+async function revokePaypalAccess(env, subscriptionId, eventType, resource) {
+  const now = new Date().toISOString();
+  const existing = await env.DB.prepare(
+    "SELECT user_id FROM paypal_subscriptions WHERE paypal_subscription_id = ? LIMIT 1",
+  ).bind(subscriptionId).first();
+  if (!existing) return;
+
+  await env.DB.batch([
+    env.DB.prepare(
+      "UPDATE paypal_subscriptions SET status = ?, raw_payload = ?, updated_at = ? WHERE paypal_subscription_id = ?",
+    ).bind(paypalAccessStatus(eventType), JSON.stringify(resource || {}), now, subscriptionId),
+    env.DB.prepare(
+      "UPDATE subscriptions SET status = ?, updated_at = ? WHERE user_id = ? AND source = 'paypal' AND status = 'active'",
+    ).bind(eventType === "BILLING.SUBSCRIPTION.EXPIRED" ? "expired" : "revoked", now, existing.user_id),
+  ]);
+}
+
+async function upsertPaypalSubscription(env, userId, tier, subscription, accessStatus, currentPeriodEnd = null) {
+  const now = new Date().toISOString();
+  const subscriptionId = cleanPaypalId(subscription.id);
+  const existing = await env.DB.prepare(
+    "SELECT id FROM paypal_subscriptions WHERE paypal_subscription_id = ? LIMIT 1",
+  ).bind(subscriptionId).first();
+
+  const payerEmail = subscription.subscriber?.email_address || null;
+  const periodEnd = currentPeriodEnd || paypalPeriodEnd(subscription);
+  const rawPayload = JSON.stringify(subscription);
+
+  if (existing) {
+    await env.DB.prepare(
+      `UPDATE paypal_subscriptions
+       SET user_id = ?, tier = ?, paypal_plan_id = ?, status = ?, payer_email = ?, current_period_end = ?, raw_payload = ?, updated_at = ?
+       WHERE id = ?`,
+    ).bind(userId, tier, subscription.plan_id, accessStatus, payerEmail, periodEnd, rawPayload, now, existing.id).run();
+    return;
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO paypal_subscriptions
+      (id, user_id, tier, paypal_subscription_id, paypal_plan_id, status, payer_email, current_period_end, raw_payload, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(randomId(), userId, tier, subscriptionId, subscription.plan_id, accessStatus, payerEmail, periodEnd, rawPayload, now, now).run();
+}
+
+async function recordPaypalPayment(env, userId, tier, resource, event) {
+  const paymentId = cleanPaypalId(resource.id || event.id);
+  if (!paymentId) return;
+
+  const now = new Date().toISOString();
+  const amount = Number(resource.amount?.total || resource.amount?.value || 0);
+  const currency = resource.amount?.currency || resource.amount?.currency_code || null;
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO payments
+        (id, user_id, provider, provider_payment_id, tier, amount_cents, currency, status, paid_at, raw_payload, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      randomId(),
+      userId || null,
+      "paypal",
+      paymentId,
+      tier || 1,
+      Number.isFinite(amount) ? Math.round(amount * 100) : null,
+      currency,
+      resource.state || resource.status || "completed",
+      resource.create_time || event.create_time || now,
+      JSON.stringify(event),
+      now,
+    ).run();
+  } catch (error) {
+    if (!String(error?.message || error).includes("UNIQUE")) throw error;
+  }
+}
+
+async function userIdForPaypalSubscription(env, subscription) {
+  const existing = await env.DB.prepare(
+    "SELECT user_id FROM paypal_subscriptions WHERE paypal_subscription_id = ? LIMIT 1",
+  ).bind(cleanPaypalId(subscription.id)).first();
+  if (existing?.user_id) return existing.user_id;
+
+  const customId = String(subscription.custom_id || "").trim();
+  if (!customId) return null;
+
+  const user = await env.DB.prepare("SELECT id FROM users WHERE id = ? LIMIT 1").bind(customId).first();
+  return user?.id || null;
+}
+
+async function verifyPaypalWebhook(request, env, event) {
+  if (env.PAYPAL_SKIP_WEBHOOK_VERIFICATION === "1") return;
+  if (!env.PAYPAL_WEBHOOK_ID) {
+    throw new Error("PAYPAL_WEBHOOK_ID is not configured");
+  }
+
+  const verification = await paypalRequest(env, "/v1/notifications/verify-webhook-signature", {
+    method: "POST",
+    body: {
+      auth_algo: request.headers.get("paypal-auth-algo"),
+      cert_url: request.headers.get("paypal-cert-url"),
+      transmission_id: request.headers.get("paypal-transmission-id"),
+      transmission_sig: request.headers.get("paypal-transmission-sig"),
+      transmission_time: request.headers.get("paypal-transmission-time"),
+      webhook_id: env.PAYPAL_WEBHOOK_ID,
+      webhook_event: event,
+    },
+  });
+
+  if (verification.verification_status !== "SUCCESS") {
+    throw new Error("PayPal webhook signature verification failed");
+  }
+}
+
+async function paypalRequest(env, path, options = {}) {
+  const token = await paypalAccessToken(env);
+  const response = await fetch(`${paypalApiBase(env)}${path}`, {
+    method: options.method || "GET",
+    headers: {
+      "content-type": "application/json",
+      "authorization": `Bearer ${token}`,
+      ...(options.headers || {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.message || data.error_description || data.name || "PayPal request failed");
+  }
+  return data;
+}
+
+async function paypalAccessToken(env) {
+  if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
+    throw new Error("PayPal credentials are not configured");
+  }
+
+  const response = await fetch(`${paypalApiBase(env)}/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      "authorization": `Basic ${btoa(`${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_CLIENT_SECRET}`)}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.access_token) {
+    throw new Error(data.error_description || "Could not get PayPal access token");
+  }
+  return data.access_token;
+}
+
+function paypalConfig(env) {
+  const mode = PAYPAL_ALLOWED_MODES.has(env.PAYPAL_MODE) ? env.PAYPAL_MODE : "sandbox";
+  return {
+    mode,
+    clientId: env.PAYPAL_CLIENT_ID || "",
+    currency: env.PAYPAL_CURRENCY || "EUR",
+    plans: {
+      1: env.PAYPAL_TIER_1_PLAN_ID || "",
+      2: env.PAYPAL_TIER_2_PLAN_ID || "",
+      3: env.PAYPAL_TIER_3_PLAN_ID || "",
+    },
+  };
+}
+
+function paypalApiBase(env) {
+  return paypalConfig(env).mode === "live"
+    ? "https://api-m.paypal.com"
+    : "https://api-m.sandbox.paypal.com";
+}
+
+function tierForPaypalPlan(env, planId) {
+  const config = paypalConfig(env);
+  return [1, 2, 3].find((tier) => config.plans[tier] && config.plans[tier] === planId) || 0;
+}
+
+function paypalSubscriptionIdFromResource(resource, eventType = "") {
+  if (String(eventType).startsWith("PAYMENT.")) {
+    return cleanPaypalId(
+      resource.billing_agreement_id ||
+      resource.subscription_id ||
+      resource.supplementary_data?.related_ids?.subscription_id ||
+      "",
+    );
+  }
+
+  return cleanPaypalId(
+    resource.id ||
+    resource.billing_agreement_id ||
+    resource.subscription_id ||
+    resource.supplementary_data?.related_ids?.subscription_id ||
+    "",
+  );
+}
+
+function paypalPeriodEnd(subscription) {
+  return subscription.billing_info?.next_billing_time || subscription.billing_info?.final_payment_time || null;
+}
+
+function paypalAccessStatus(eventType) {
+  if (eventType === "BILLING.SUBSCRIPTION.EXPIRED") return "expired";
+  if (eventType === "BILLING.SUBSCRIPTION.PAYMENT.FAILED") return "payment_failed";
+  if (eventType === "BILLING.SUBSCRIPTION.SUSPENDED") return "suspended";
+  return "revoked";
+}
+
+function cleanPaypalId(value) {
+  return String(value || "").trim().replace(/[^A-Za-z0-9._-]/g, "").slice(0, 128);
 }
 
 async function upsertUser(env, input) {

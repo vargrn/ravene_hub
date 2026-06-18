@@ -1319,10 +1319,24 @@ button {
 
 .membership-tiers .btn {
   margin-top: 18px;
-  margin-bottom: 18px;
+  margin-bottom: 10px;
   min-height: 44px;
   font-size: 13px;
   text-transform: none;
+}
+
+.paypal-buttons {
+  margin-top: 16px;
+  margin-bottom: 10px;
+  min-height: 48px;
+}
+
+.paypal-buttons iframe {
+  filter: saturate(0.92);
+}
+
+.membership-tiers .form-note {
+  margin-bottom: 16px;
 }
 
 .membership-tiers .text {

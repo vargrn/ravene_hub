@@ -37,6 +37,23 @@
     });
   };
 
+  const loadScriptOnce = (src, id) => new Promise((resolve, reject) => {
+    const existing = document.getElementById(id);
+    if (existing) {
+      existing.addEventListener("load", resolve, { once: true });
+      if (window.paypal) resolve();
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = id;
+    script.src = src;
+    script.async = true;
+    script.addEventListener("load", resolve, { once: true });
+    script.addEventListener("error", () => reject(new Error("Could not load PayPal")), { once: true });
+    document.head.appendChild(script);
+  });
+
   const renderAccount = (account) => {
     const panel = document.querySelector("[data-account-panel]");
     setAuthNavVisible(Boolean(account.authenticated));
@@ -192,6 +209,105 @@
     });
   };
 
+  const initPayPalSubscriptions = async () => {
+    const containers = [...document.querySelectorAll("[data-paypal-buttons]")];
+    if (!containers.length) return;
+
+    const setTierMessage = (tier, text) => {
+      const message = document.querySelector(`[data-paypal-message="${tier}"]`);
+      if (message) message.textContent = text;
+    };
+
+    try {
+      const [account, config] = await Promise.all([
+        api("/api/me"),
+        api("/api/paypal/config"),
+      ]);
+
+      if (!account.authenticated) {
+        containers.forEach((container) => {
+          const tier = container.dataset.paypalButtons;
+          container.hidden = true;
+          const fallback = document.querySelector(`[data-paypal-fallback="${tier}"]`);
+          if (fallback) fallback.hidden = false;
+          setTierMessage(tier, "Log in or register before subscribing.");
+        });
+        return;
+      }
+
+      if (!config.configured) {
+        containers.forEach((container) => {
+          const tier = container.dataset.paypalButtons;
+          container.hidden = true;
+          const fallback = document.querySelector(`[data-paypal-fallback="${tier}"]`);
+          if (fallback) fallback.hidden = false;
+          setTierMessage(tier, "PayPal subscription plans are not configured yet.");
+        });
+        return;
+      }
+
+      const sdkUrl = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(config.clientId)}&vault=true&intent=subscription&currency=${encodeURIComponent(config.currency || "EUR")}`;
+      await loadScriptOnce(sdkUrl, "paypal-subscriptions-sdk");
+
+      containers.forEach((container) => {
+        const tier = Number(container.dataset.paypalButtons || 0);
+        const planId = config.plans?.[tier];
+        const fallback = document.querySelector(`[data-paypal-fallback="${tier}"]`);
+
+        if (!planId || !window.paypal?.Buttons) {
+          setTierMessage(tier, "This tier is not connected to PayPal yet.");
+          return;
+        }
+
+        if (fallback) fallback.hidden = true;
+        container.hidden = false;
+        container.innerHTML = "";
+        setTierMessage(tier, "Monthly subscription via PayPal.");
+
+        window.paypal.Buttons({
+          style: {
+            layout: "horizontal",
+            color: "silver",
+            shape: "rect",
+            label: "subscribe",
+            height: 44,
+          },
+          createSubscription: (data, actions) => actions.subscription.create({
+            plan_id: planId,
+            custom_id: account.user?.id || "",
+          }),
+          onApprove: async (data) => {
+            setTierMessage(tier, "Checking subscription...");
+            await api("/api/paypal/subscription/activate", {
+              method: "POST",
+              body: JSON.stringify({
+                tier,
+                subscriptionId: data.subscriptionID,
+              }),
+            });
+            setTierMessage(tier, "Subscription active. Access is connected.");
+            window.setTimeout(() => window.location.href = "account.html#connect-account", 800);
+          },
+          onCancel: () => {
+            setTierMessage(tier, "Subscription was cancelled before approval.");
+          },
+          onError: (error) => {
+            console.error(error);
+            setTierMessage(tier, "PayPal could not start the subscription.");
+          },
+        }).render(container);
+      });
+    } catch (error) {
+      containers.forEach((container) => {
+        const tier = container.dataset.paypalButtons;
+        container.hidden = true;
+        const fallback = document.querySelector(`[data-paypal-fallback="${tier}"]`);
+        if (fallback) fallback.hidden = false;
+        setTierMessage(tier, error.message || "PayPal is not available yet.");
+      });
+    }
+  };
+
   const escapeHTML = (value) => String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -340,5 +456,6 @@
   initPasswordAuth();
   initLogout();
   initBuildLaunch();
+  initPayPalSubscriptions();
   initPostComments();
 })();
