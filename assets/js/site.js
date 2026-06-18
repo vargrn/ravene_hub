@@ -218,6 +218,27 @@
       if (message) message.textContent = text;
     };
 
+    const setJoinButton = (tier, mode, message) => {
+      const button = document.querySelector(`[data-paypal-fallback="${tier}"]`);
+      if (!button) return;
+
+      button.hidden = false;
+      button.disabled = false;
+      button.onclick = () => {
+        if (mode === "login") {
+          window.location.href = "account.html#connect-account";
+          return;
+        }
+        setTierMessage(tier, message);
+      };
+    };
+
+    containers.forEach((container) => {
+      const tier = container.dataset.paypalButtons;
+      container.hidden = true;
+      setJoinButton(tier, "login", "Log in or register before subscribing.");
+    });
+
     try {
       const [account, config] = await Promise.all([
         api("/api/me"),
@@ -228,8 +249,7 @@
         containers.forEach((container) => {
           const tier = container.dataset.paypalButtons;
           container.hidden = true;
-          const fallback = document.querySelector(`[data-paypal-fallback="${tier}"]`);
-          if (fallback) fallback.hidden = false;
+          setJoinButton(tier, "login", "Log in or register before subscribing.");
           setTierMessage(tier, "Log in or register before subscribing.");
         });
         return;
@@ -239,8 +259,7 @@
         containers.forEach((container) => {
           const tier = container.dataset.paypalButtons;
           container.hidden = true;
-          const fallback = document.querySelector(`[data-paypal-fallback="${tier}"]`);
-          if (fallback) fallback.hidden = false;
+          setJoinButton(tier, "notice", "PayPal is not configured yet.");
           setTierMessage(tier, "PayPal subscription plans are not configured yet.");
         });
         return;
@@ -255,6 +274,7 @@
         const fallback = document.querySelector(`[data-paypal-fallback="${tier}"]`);
 
         if (!planId || !window.paypal?.Buttons) {
+          setJoinButton(tier, "notice", "This tier is not connected to PayPal yet.");
           setTierMessage(tier, "This tier is not connected to PayPal yet.");
           return;
         }
@@ -301,8 +321,7 @@
       containers.forEach((container) => {
         const tier = container.dataset.paypalButtons;
         container.hidden = true;
-        const fallback = document.querySelector(`[data-paypal-fallback="${tier}"]`);
-        if (fallback) fallback.hidden = false;
+        setJoinButton(tier, "notice", error.message || "PayPal is not available yet.");
         setTierMessage(tier, error.message || "PayPal is not available yet.");
       });
     }
