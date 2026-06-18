@@ -255,7 +255,7 @@ button {
   font-size: 48px;
   line-height: 0.96;
   font-weight: 400;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: 0 18px 38px rgba(0, 0, 0, 0.52);
 }
 
@@ -291,7 +291,7 @@ button {
   font-family: "Exo2", serif;
   font-size: 11px;
   color: var(--text-muted);
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .profile-stats span,
@@ -327,7 +327,7 @@ button {
   color: var(--text-soft);
   font-family: "Exo2", serif;
   font-size: 12px;
-  text-transform: uppercase;
+  text-transform: none;
   transition: color 0.18s ease, text-shadow 0.18s ease;
 }
 
@@ -416,7 +416,7 @@ button {
   font-size: 50px;
   line-height: 0.98;
   font-weight: 400;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: 0 18px 38px rgba(0, 0, 0, 0.52);
 }
 
@@ -497,7 +497,7 @@ button {
   font-size: 24px;
   line-height: 1;
   font-weight: 400;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .section-arrows {
@@ -562,7 +562,7 @@ button {
   font-size: 26px;
   line-height: 1.05;
   font-weight: 400;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .post-grid {
@@ -592,7 +592,7 @@ button {
   font-size: 18px;
   line-height: 1.18;
   font-weight: 400;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .post-card-body p {
@@ -679,7 +679,7 @@ button {
   font-size: 44px;
   line-height: 1.08;
   font-weight: 400;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .post-detail-card h1 {
@@ -757,7 +757,7 @@ button {
   font-size: 24px;
   line-height: 1;
   font-weight: 400;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .comment-input {
@@ -816,7 +816,7 @@ button {
   gap: 8px;
   color: var(--text-muted);
   font-size: 11px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .comment-form {
@@ -920,7 +920,7 @@ button {
   color: var(--text-muted);
   font-family: "Exo2", serif;
   font-size: 11px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .card h2,
@@ -930,7 +930,7 @@ button {
   font-size: 30px;
   line-height: 1.04;
   font-weight: 400;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: 0 16px 34px rgba(0, 0, 0, 0.5);
 }
 
@@ -984,7 +984,7 @@ button {
     linear-gradient(90deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.018)),
     rgba(255, 255, 255, 0.012);
   color: var(--text);
-  text-transform: uppercase;
+  text-transform: none;
   font-size: 14px;
   font-family: "Exo2", serif;
   box-shadow:
@@ -1053,7 +1053,7 @@ button {
 .membership-price {
   font-size: 34px;
   line-height: 1;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .membership-price span {
@@ -1103,7 +1103,7 @@ button {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.4;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .account-status strong {
@@ -1172,7 +1172,7 @@ button {
 }
 
 .connect-row input {
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .connect-form input:focus,
@@ -1239,7 +1239,7 @@ button {
 
 .archive-list small {
   color: var(--text-muted);
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -1262,6 +1262,72 @@ button {
 
 .grid-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.membership-tiers {
+  display: grid;
+  grid-template-columns: minmax(0, 380px) minmax(0, 400px);
+  justify-content: center;
+  align-items: start;
+  gap: 24px;
+  padding: 20px 0 28px;
+}
+
+.membership-tiers #tier-1 {
+  min-height: 510px;
+}
+
+.membership-tiers #tier-2 {
+  min-height: 540px;
+  margin-top: -12px;
+}
+
+.membership-tiers .post-body {
+  padding: 22px;
+}
+
+.membership-tiers .post-title_2 {
+  display: block;
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1.12;
+  font-weight: 700;
+  text-transform: none;
+  text-shadow: 0 14px 28px rgba(0, 0, 0, 0.48);
+}
+
+.membership-tiers .tier-price {
+  display: block;
+  margin-top: 7px;
+  color: var(--text);
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.membership-tiers .tier-price small {
+  color: var(--text-soft);
+  font-family: "Exo2", serif;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.membership-tiers .btn {
+  margin-top: 18px;
+  margin-bottom: 18px;
+  min-height: 44px;
+  font-size: 13px;
+  text-transform: none;
+}
+
+.membership-tiers .text {
+  font-size: 13px;
+  line-height: 1.52;
+}
+
+.membership-tiers .text + .text {
+  margin-top: 10px;
 }
 
 .tile-image {
@@ -1378,8 +1444,15 @@ button {
   .home-hero,
   .grid-2,
   .grid-3,
+  .membership-tiers,
   .latest-post {
     grid-template-columns: 1fr;
+  }
+
+  .membership-tiers #tier-1,
+  .membership-tiers #tier-2 {
+    min-height: 0;
+    margin-top: 0;
   }
 
   .home-hero-art {
