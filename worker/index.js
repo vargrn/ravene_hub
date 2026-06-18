@@ -3,8 +3,9 @@ const SESSION_DAYS = 30;
 const BUILD_SESSION_MINUTES = 15;
 const PASSWORD_ITERATIONS = 60000;
 const PASSWORD_ALGORITHM = "pbkdf2-sha256";
-const PAYPAL_SUBSCRIPTION_DAYS_FALLBACK = 32;
-const PAYPAL_ALLOWED_MODES = new Set(["sandbox", "live"]);
+const MOONPAY_SUBSCRIPTION_DAYS_FALLBACK = 32;
+const MOONPAY_ALLOWED_MODES = new Set(["test", "live"]);
+const MOONPAY_WIDGET_SCRIPT_URL = "https://embed.hel.io/assets/index-v1.js";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -71,20 +72,16 @@ async function handleApi(request, env, url) {
       return clearSession();
     }
 
-    if (url.pathname === "/api/paypal/config" && request.method === "GET") {
-      return paypalPublicConfig(request, env);
+    if (url.pathname === "/api/moonpay/config" && request.method === "GET") {
+      return moonPayPublicConfig(request, env);
     }
 
-    if (url.pathname === "/api/paypal/subscription/activate" && request.method === "POST") {
-      return activatePaypalSubscription(request, env);
+    if (url.pathname === "/api/moonpay/checkout/session" && request.method === "POST") {
+      return createMoonPayCheckoutSession(request, env);
     }
 
-    if (url.pathname === "/api/paypal/subscription/cancel" && request.method === "POST") {
-      return cancelActivePaypalSubscription(request, env);
-    }
-
-    if (url.pathname === "/api/paypal/webhook" && request.method === "POST") {
-      return handlePaypalWebhook(request, env);
+    if ((url.pathname === "/api/moonpay/webhook" || url.pathname === "/api/helio/webhook") && request.method === "POST") {
+      return handleMoonPayWebhook(request, env);
     }
 
     if (url.pathname === "/api/builds/current/launch" && request.method === "POST") {
@@ -447,102 +444,91 @@ function clearSession() {
   );
 }
 
-async function paypalPublicConfig(request, env) {
+async function moonPayPublicConfig(request, env) {
   const account = await currentAccount(request, env);
-  const config = paypalConfig(env);
+  const config = moonPayConfig(env);
 
   return json({
-    configured: Boolean(config.clientId && config.plans[1] && config.plans[2]),
+    configured: Boolean(config.paylinks[1] && config.paylinks[2]),
     authenticated: Boolean(account.authenticated),
     mode: config.mode,
-    clientId: config.clientId || null,
-    currency: config.currency,
+    network: config.network,
+    paymentType: config.paymentType,
+    primaryPaymentMethod: config.primaryPaymentMethod,
+    widgetScriptUrl: MOONPAY_WIDGET_SCRIPT_URL,
     plans: {
-      1: config.plans[1] || null,
-      2: config.plans[2] || null,
+      1: moonPayPublicPlan(config, 1),
+      2: moonPayPublicPlan(config, 2),
     },
   });
 }
 
-async function activatePaypalSubscription(request, env) {
+async function createMoonPayCheckoutSession(request, env) {
   if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
 
   const account = await currentAccount(request, env);
   if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
 
   const body = await readJson(request);
-  const subscriptionId = cleanPaypalId(body.subscriptionId);
   const tier = Number(body.tier || 0);
-  const config = paypalConfig(env);
-  const expectedPlanId = config.plans[tier];
+  const config = moonPayConfig(env);
+  const paylinkId = config.paylinks[tier];
 
-  if (!subscriptionId) return json({ error: "PayPal subscription ID is missing" }, { status: 400 });
-  if (!expectedPlanId) return json({ error: "This PayPal tier is not configured yet" }, { status: 503 });
+  if (!tier || tier < 1 || tier > 3) return json({ error: "Membership tier is invalid" }, { status: 400 });
+  if (!paylinkId) return json({ error: "This MoonPay Commerce tier is not configured yet" }, { status: 503 });
 
-  const subscription = await paypalRequest(env, `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`);
-  if (subscription.plan_id !== expectedPlanId) {
-    return json({ error: "PayPal plan does not match selected tier" }, { status: 400 });
-  }
+  const now = new Date().toISOString();
+  const sessionId = randomId();
+  const checkoutToken = randomToken();
 
-  if (subscription.status !== "ACTIVE") {
-    await upsertPaypalSubscription(env, account.user.id, tier, subscription, "pending");
-    return json({ error: `PayPal subscription is ${subscription.status || "not active"} yet` }, { status: 409 });
-  }
-
-  const access = await grantPaypalAccess(env, account.user.id, tier, subscription);
-  return json({
-    ok: true,
+  await env.DB.prepare(
+    `INSERT INTO moonpay_checkout_sessions
+      (id, user_id, tier, paylink_id, status, checkout_token, created_at, updated_at, raw_payload)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    sessionId,
+    account.user.id,
     tier,
-    subscriptionId,
-    expiresAt: access.expiresAt,
-  });
-}
-
-async function cancelActivePaypalSubscription(request, env) {
-  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
-
-  const account = await currentAccount(request, env);
-  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
-
-  const subscriptionId = cleanPaypalId(account.subscription?.paypalSubscriptionId);
-  if (!subscriptionId || !account.subscription?.canCancelRenewal) {
-    return json({ error: "No active PayPal renewal was found" }, { status: 409 });
-  }
-
-  await paypalRequest(env, `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, {
-    method: "POST",
-    body: {
-      reason: "Cancelled from Ravene Hub account page",
-    },
-  });
-
-  await cancelPaypalRenewal(env, subscriptionId, {
-    id: subscriptionId,
-    status: "CANCELLED",
-    cancelled_from: "ravene_hub_account",
-    cancelled_at: new Date().toISOString(),
-  });
+    paylinkId,
+    "pending",
+    checkoutToken,
+    now,
+    now,
+    JSON.stringify({
+      userAgent: request.headers.get("user-agent") || "",
+      referer: request.headers.get("referer") || "",
+    }),
+  ).run();
 
   return json({
     ok: true,
-    account: await currentAccount(request, env),
+    sessionId,
+    checkoutToken,
+    tier,
+    paylinkId,
+    network: config.network,
+    paymentType: config.paymentType,
+    primaryPaymentMethod: config.primaryPaymentMethod,
   });
 }
 
-async function handlePaypalWebhook(request, env) {
+async function handleMoonPayWebhook(request, env) {
   if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
 
   const rawBody = await request.text();
-  const event = JSON.parse(rawBody || "{}");
-  if (!event.id || !event.event_type) return json({ error: "Webhook event is malformed" }, { status: 400 });
+  const payload = JSON.parse(rawBody || "{}");
+  const eventType = moonPayEventType(payload);
+  if (!eventType) return json({ error: "MoonPay webhook event is malformed" }, { status: 400 });
 
-  await verifyPaypalWebhook(request, env, event);
+  await verifyMoonPayWebhook(request, env, rawBody);
 
   const now = new Date().toISOString();
+  const eventId = await moonPayWebhookEventId(request, payload, eventType, rawBody);
+
   try {
     await env.DB.prepare(
       "INSERT INTO webhook_events (id, provider, provider_event_id, event_type, received_at, raw_payload) VALUES (?, ?, ?, ?, ?, ?)",
-    ).bind(randomId(), "paypal", event.id, event.event_type, now, rawBody).run();
+    ).bind(randomId(), "moonpay", eventId, eventType, now, rawBody).run();
   } catch (error) {
     if (String(error?.message || error).includes("UNIQUE")) {
       return json({ ok: true, duplicate: true });
@@ -550,136 +536,199 @@ async function handlePaypalWebhook(request, env) {
     throw error;
   }
 
-  await applyPaypalWebhookEvent(env, event);
+  await applyMoonPayWebhookEvent(env, payload, eventType);
   return json({ ok: true });
 }
 
-async function applyPaypalWebhookEvent(env, event) {
-  const resource = event.resource || {};
-  const eventType = event.event_type || "";
-  const subscriptionId = paypalSubscriptionIdFromResource(resource, eventType);
+async function applyMoonPayWebhookEvent(env, payload, eventType) {
+  const details = await resolveMoonPayDetails(env, moonPayPayloadDetails(env, payload));
 
-  if (!subscriptionId) return;
+  if (eventType === "STARTED" || eventType === "RENEWED") {
+    const providerStatus = eventType === "RENEWED" ? "renewed" : "active";
+    await upsertMoonPaySubscription(env, details, providerStatus, payload);
+    await recordMoonPayPayment(env, details, payload, eventType);
 
-  if (
-    eventType === "BILLING.SUBSCRIPTION.ACTIVATED" ||
-    eventType === "BILLING.SUBSCRIPTION.UPDATED" ||
-    eventType === "PAYMENT.SALE.COMPLETED"
-  ) {
-    const subscription = await paypalRequest(env, `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`);
-    const userId = await userIdForPaypalSubscription(env, subscription);
-    const tier = tierForPaypalPlan(env, subscription.plan_id);
-    if (userId && tier && subscription.status === "ACTIVE") {
-      await grantPaypalAccess(env, userId, tier, subscription);
-    }
-
-    if (eventType === "PAYMENT.SALE.COMPLETED") {
-      await recordPaypalPayment(env, userId, tier || 0, resource, event);
+    if (details.userId && details.tier) {
+      await grantMoonPayAccess(env, details.userId, details.tier, details, payload);
     }
     return;
   }
 
-  if (eventType === "BILLING.SUBSCRIPTION.CANCELLED") {
-    await cancelPaypalRenewal(env, subscriptionId, resource);
-    return;
-  }
-
-  if (
-    eventType === "BILLING.SUBSCRIPTION.SUSPENDED" ||
-    eventType === "BILLING.SUBSCRIPTION.EXPIRED" ||
-    eventType === "BILLING.SUBSCRIPTION.PAYMENT.FAILED" ||
-    eventType === "PAYMENT.SALE.REVERSED"
-  ) {
-    await revokePaypalAccess(env, subscriptionId, eventType, resource);
+  if (eventType === "ENDED" || eventType === "EXPIRED" || eventType === "CANCELLED") {
+    await endMoonPayAccess(env, details, eventType, payload);
   }
 }
 
-async function grantPaypalAccess(env, userId, tier, subscription) {
-  const now = new Date().toISOString();
-  const startsAt = subscription.start_time || subscription.create_time || now;
-  const expiresAt = paypalPeriodEnd(subscription) || addDays(new Date(), PAYPAL_SUBSCRIPTION_DAYS_FALLBACK).toISOString();
+async function resolveMoonPayDetails(env, details) {
+  let userId = details.userId;
+  let tier = details.tier;
+  let paylinkId = details.paylinkId;
+  let checkoutSessionId = details.checkoutSessionId;
 
-  await upsertPaypalSubscription(env, userId, tier, subscription, "active", expiresAt);
+  const session = await moonPayCheckoutSession(env, checkoutSessionId, details.checkoutToken);
+  if (session) {
+    userId = userId || session.user_id;
+    tier = Number(session.tier || 0) || tier;
+    paylinkId = paylinkId || session.paylink_id;
+    checkoutSessionId = checkoutSessionId || session.id;
+  }
+
+  if (paylinkId) tier = tierForMoonPayPaylink(env, paylinkId) || tier;
+
+  if (!userId && details.subscriptionId) {
+    const existing = await env.DB.prepare(
+      "SELECT user_id, tier, paylink_id, checkout_session_id FROM moonpay_subscriptions WHERE moonpay_subscription_id = ? LIMIT 1",
+    ).bind(details.subscriptionId).first();
+    if (existing) {
+      userId = userId || existing.user_id;
+      tier = tier || Number(existing.tier || 0);
+      paylinkId = paylinkId || existing.paylink_id;
+      checkoutSessionId = checkoutSessionId || existing.checkout_session_id;
+    }
+  }
+
+  if (!userId && details.email) {
+    const user = await env.DB.prepare("SELECT id FROM users WHERE lower(email) = ? LIMIT 1").bind(details.email).first();
+    userId = user?.id || null;
+  }
+
+  return {
+    ...details,
+    userId: cleanRecordId(userId),
+    tier: Number(tier || 0),
+    paylinkId: cleanMoonPayId(paylinkId),
+    checkoutSessionId: cleanRecordId(checkoutSessionId),
+  };
+}
+
+async function moonPayCheckoutSession(env, sessionId, checkoutToken) {
+  const token = cleanMoonPayToken(checkoutToken);
+  if (token) {
+    const row = await env.DB.prepare(
+      "SELECT id, user_id, tier, paylink_id FROM moonpay_checkout_sessions WHERE checkout_token = ? LIMIT 1",
+    ).bind(token).first();
+    if (row) return row;
+  }
+
+  const id = cleanRecordId(sessionId);
+  if (!id) return null;
+  return env.DB.prepare(
+    "SELECT id, user_id, tier, paylink_id FROM moonpay_checkout_sessions WHERE id = ? LIMIT 1",
+  ).bind(id).first();
+}
+
+async function grantMoonPayAccess(env, userId, tier, details, payload) {
+  const now = new Date().toISOString();
+  const startsAt = details.createdAt || now;
+  const expiresAt = details.renewalDate || addDays(new Date(), MOONPAY_SUBSCRIPTION_DAYS_FALLBACK).toISOString();
 
   await env.DB.batch([
     env.DB.prepare(
-      "UPDATE subscriptions SET status = 'revoked', updated_at = ? WHERE user_id = ? AND source = 'paypal' AND status = 'active'",
+      "UPDATE subscriptions SET status = 'revoked', updated_at = ? WHERE user_id = ? AND source = 'moonpay' AND status = 'active'",
     ).bind(now, userId),
     env.DB.prepare(
       "INSERT INTO subscriptions (id, user_id, tier, status, source, starts_at, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).bind(randomId(), userId, tier, "active", "paypal", startsAt, expiresAt, now, now),
+    ).bind(randomId(), userId, tier, "active", "moonpay", startsAt, expiresAt, now, now),
   ]);
+
+  if (details.checkoutSessionId || details.checkoutToken) {
+    await markMoonPayCheckoutSession(env, details, "active", now, payload);
+  }
 
   return { expiresAt };
 }
 
-async function cancelPaypalRenewal(env, subscriptionId, resource) {
+async function endMoonPayAccess(env, details, eventType, payload) {
   const now = new Date().toISOString();
-  const existing = await env.DB.prepare(
-    "SELECT current_period_end FROM paypal_subscriptions WHERE paypal_subscription_id = ? LIMIT 1",
-  ).bind(subscriptionId).first();
+  const subscriptionId = moonPaySubscriptionRecordId(details);
+  let existing = null;
 
-  if (!existing) return;
+  if (subscriptionId) {
+    existing = await env.DB.prepare(
+      "SELECT user_id, tier FROM moonpay_subscriptions WHERE moonpay_subscription_id = ? LIMIT 1",
+    ).bind(subscriptionId).first();
+  }
+
+  const userId = details.userId || existing?.user_id || null;
+  const tier = details.tier || Number(existing?.tier || 0);
+
+  if (subscriptionId && tier) {
+    await upsertMoonPaySubscription(env, { ...details, userId, tier, subscriptionId }, moonPayEndedStatus(eventType), payload);
+  }
+
+  if (!userId) return;
 
   await env.DB.prepare(
-    `UPDATE paypal_subscriptions
-     SET status = ?, current_period_end = COALESCE(current_period_end, ?), raw_payload = ?, updated_at = ?
-     WHERE paypal_subscription_id = ?`,
-  ).bind("cancelled", existing.current_period_end || null, JSON.stringify(resource || {}), now, subscriptionId).run();
+    "UPDATE subscriptions SET status = ?, updated_at = ? WHERE user_id = ? AND source = 'moonpay' AND status = 'active'",
+  ).bind(eventType === "ENDED" || eventType === "EXPIRED" ? "expired" : "revoked", now, userId).run();
+
+  if (details.checkoutSessionId || details.checkoutToken) {
+    await markMoonPayCheckoutSession(env, details, "ended", now, payload);
+  }
 }
 
-async function revokePaypalAccess(env, subscriptionId, eventType, resource) {
+async function upsertMoonPaySubscription(env, details, status, payload) {
   const now = new Date().toISOString();
-  const existing = await env.DB.prepare(
-    "SELECT user_id FROM paypal_subscriptions WHERE paypal_subscription_id = ? LIMIT 1",
-  ).bind(subscriptionId).first();
-  if (!existing) return;
+  const subscriptionId = moonPaySubscriptionRecordId(details);
+  const tier = Number(details.tier || 0);
+  if (!subscriptionId || !tier) return;
 
-  await env.DB.batch([
-    env.DB.prepare(
-      "UPDATE paypal_subscriptions SET status = ?, raw_payload = ?, updated_at = ? WHERE paypal_subscription_id = ?",
-    ).bind(paypalAccessStatus(eventType), JSON.stringify(resource || {}), now, subscriptionId),
-    env.DB.prepare(
-      "UPDATE subscriptions SET status = ?, updated_at = ? WHERE user_id = ? AND source = 'paypal' AND status = 'active'",
-    ).bind(eventType === "BILLING.SUBSCRIPTION.EXPIRED" ? "expired" : "revoked", now, existing.user_id),
-  ]);
-}
-
-async function upsertPaypalSubscription(env, userId, tier, subscription, accessStatus, currentPeriodEnd = null) {
-  const now = new Date().toISOString();
-  const subscriptionId = cleanPaypalId(subscription.id);
   const existing = await env.DB.prepare(
-    "SELECT id FROM paypal_subscriptions WHERE paypal_subscription_id = ? LIMIT 1",
+    "SELECT id, user_id FROM moonpay_subscriptions WHERE moonpay_subscription_id = ? LIMIT 1",
   ).bind(subscriptionId).first();
 
-  const payerEmail = subscription.subscriber?.email_address || null;
-  const periodEnd = currentPeriodEnd || paypalPeriodEnd(subscription);
-  const rawPayload = JSON.stringify(subscription);
+  const rawPayload = JSON.stringify(payload || {});
+  const userId = details.userId || null;
 
   if (existing) {
     await env.DB.prepare(
-      `UPDATE paypal_subscriptions
-       SET user_id = ?, tier = ?, paypal_plan_id = ?, status = ?, payer_email = ?, current_period_end = ?, raw_payload = ?, updated_at = ?
+      `UPDATE moonpay_subscriptions
+       SET user_id = COALESCE(?, user_id), tier = ?, paylink_id = ?, status = ?, customer_email = COALESCE(?, customer_email),
+           payer_wallet = COALESCE(?, payer_wallet), checkout_session_id = COALESCE(?, checkout_session_id), renewal_date = COALESCE(?, renewal_date),
+           raw_payload = ?, updated_at = ?
        WHERE id = ?`,
-    ).bind(userId, tier, subscription.plan_id, accessStatus, payerEmail, periodEnd, rawPayload, now, existing.id).run();
+    ).bind(
+      userId,
+      tier,
+      details.paylinkId || "",
+      status,
+      details.email || null,
+      details.payerWallet || null,
+      details.checkoutSessionId || null,
+      details.renewalDate || null,
+      rawPayload,
+      now,
+      existing.id,
+    ).run();
     return;
   }
 
   await env.DB.prepare(
-    `INSERT INTO paypal_subscriptions
-      (id, user_id, tier, paypal_subscription_id, paypal_plan_id, status, payer_email, current_period_end, raw_payload, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(randomId(), userId, tier, subscriptionId, subscription.plan_id, accessStatus, payerEmail, periodEnd, rawPayload, now, now).run();
+    `INSERT INTO moonpay_subscriptions
+      (id, user_id, tier, moonpay_subscription_id, paylink_id, status, customer_email, payer_wallet, checkout_session_id, renewal_date, raw_payload, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    randomId(),
+    userId,
+    tier,
+    subscriptionId,
+    details.paylinkId || "",
+    status,
+    details.email || null,
+    details.payerWallet || null,
+    details.checkoutSessionId || null,
+    details.renewalDate || null,
+    rawPayload,
+    now,
+    now,
+  ).run();
 }
 
-async function recordPaypalPayment(env, userId, tier, resource, event) {
-  const paymentId = cleanPaypalId(resource.id || event.id);
-  if (!paymentId) return;
+async function recordMoonPayPayment(env, details, payload, eventType) {
+  const paymentId = cleanMoonPayId(details.transactionSignature) || cleanMoonPayId(details.transactionId) || cleanMoonPayId(`${details.subscriptionId || "subscription"}-${eventType}-${details.renewalDate || Date.now()}`);
+  if (!paymentId || eventType === "ENDED" || eventType === "EXPIRED" || eventType === "CANCELLED") return;
 
   const now = new Date().toISOString();
-  const amount = Number(resource.amount?.total || resource.amount?.value || 0);
-  const currency = resource.amount?.currency || resource.amount?.currency_code || null;
-
   try {
     await env.DB.prepare(
       `INSERT INTO payments
@@ -687,15 +736,15 @@ async function recordPaypalPayment(env, userId, tier, resource, event) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       randomId(),
-      userId || null,
-      "paypal",
+      details.userId || null,
+      "moonpay",
       paymentId,
-      tier || 1,
-      Number.isFinite(amount) ? Math.round(amount * 100) : null,
-      currency,
-      resource.state || resource.status || "completed",
-      resource.create_time || event.create_time || now,
-      JSON.stringify(event),
+      Number(details.tier || 1),
+      details.amountCents,
+      details.currency || null,
+      details.transactionStatus || "completed",
+      details.transactionCreatedAt || details.createdAt || now,
+      JSON.stringify(payload || {}),
       now,
     ).run();
   } catch (error) {
@@ -703,141 +752,333 @@ async function recordPaypalPayment(env, userId, tier, resource, event) {
   }
 }
 
-async function userIdForPaypalSubscription(env, subscription) {
-  const existing = await env.DB.prepare(
-    "SELECT user_id FROM paypal_subscriptions WHERE paypal_subscription_id = ? LIMIT 1",
-  ).bind(cleanPaypalId(subscription.id)).first();
-  if (existing?.user_id) return existing.user_id;
+async function markMoonPayCheckoutSession(env, details, status, now, payload) {
+  const token = cleanMoonPayToken(details.checkoutToken);
+  const id = cleanRecordId(details.checkoutSessionId);
+  if (!token && !id) return;
 
-  const customId = String(subscription.custom_id || "").trim();
-  if (!customId) return null;
-
-  const user = await env.DB.prepare("SELECT id FROM users WHERE id = ? LIMIT 1").bind(customId).first();
-  return user?.id || null;
+  const where = token ? "checkout_token = ?" : "id = ?";
+  await env.DB.prepare(
+    `UPDATE moonpay_checkout_sessions
+     SET status = ?, completed_at = COALESCE(completed_at, ?), raw_payload = ?, updated_at = ?
+     WHERE ${where}`,
+  ).bind(status, now, JSON.stringify(payload || {}), now, token || id).run();
 }
 
-async function verifyPaypalWebhook(request, env, event) {
-  if (env.PAYPAL_SKIP_WEBHOOK_VERIFICATION === "1") return;
-  if (!env.PAYPAL_WEBHOOK_ID) {
-    throw new Error("PAYPAL_WEBHOOK_ID is not configured");
-  }
+async function verifyMoonPayWebhook(request, env, rawBody) {
+  if (env.MOONPAY_SKIP_WEBHOOK_VERIFICATION === "1" || env.HELIO_SKIP_WEBHOOK_VERIFICATION === "1") return;
 
-  const verification = await paypalRequest(env, "/v1/notifications/verify-webhook-signature", {
-    method: "POST",
-    body: {
-      auth_algo: request.headers.get("paypal-auth-algo"),
-      cert_url: request.headers.get("paypal-cert-url"),
-      transmission_id: request.headers.get("paypal-transmission-id"),
-      transmission_sig: request.headers.get("paypal-transmission-sig"),
-      transmission_time: request.headers.get("paypal-transmission-time"),
-      webhook_id: env.PAYPAL_WEBHOOK_ID,
-      webhook_event: event,
-    },
-  });
+  const tokens = moonPayWebhookTokens(env);
+  if (!tokens.length) throw new Error("MOONPAY_WEBHOOK_SHARED_TOKEN is not configured");
 
-  if (verification.verification_status !== "SUCCESS") {
-    throw new Error("PayPal webhook signature verification failed");
+  const authorization = request.headers.get("authorization") || "";
+  const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || "";
+  const token = await matchingMoonPayWebhookToken(tokens, bearer);
+  if (!token) throw new Error("MoonPay webhook bearer token is invalid");
+
+  const signature = String(request.headers.get("x-signature") || "").trim();
+  if (!signature) return;
+
+  const expected = await hmacSha256Hex(token, rawBody);
+  if (!safeHexEqual(signature, expected)) {
+    throw new Error("MoonPay webhook signature is invalid");
   }
 }
 
-async function paypalRequest(env, path, options = {}) {
-  const token = await paypalAccessToken(env);
-  const response = await fetch(`${paypalApiBase(env)}${path}`, {
-    method: options.method || "GET",
-    headers: {
-      "content-type": "application/json",
-      "authorization": `Bearer ${token}`,
-      ...(options.headers || {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.message || data.error_description || data.name || "PayPal request failed");
+async function matchingMoonPayWebhookToken(tokens, received) {
+  if (!received) return null;
+  const receivedHash = await sha256(received);
+  for (const token of tokens) {
+    if (receivedHash === await sha256(token)) return token;
   }
-  return data;
+  return null;
 }
 
-async function paypalAccessToken(env) {
-  if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
-    throw new Error("PayPal credentials are not configured");
-  }
-
-  const response = await fetch(`${paypalApiBase(env)}/v1/oauth2/token`, {
-    method: "POST",
-    headers: {
-      "authorization": `Basic ${btoa(`${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_CLIENT_SECRET}`)}`,
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body: "grant_type=client_credentials",
-  });
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.access_token) {
-    throw new Error(data.error_description || "Could not get PayPal access token");
-  }
-  return data.access_token;
+async function moonPayWebhookEventId(request, payload, eventType, rawBody) {
+  const transaction = moonPayTransactionObject(payload);
+  const meta = transaction?.meta || payload.meta || {};
+  return cleanMoonPayId(
+    request.headers.get("x-webhook-delivery-id") ||
+    request.headers.get("x-transaction-id") ||
+    payload.webhookDeliveryIdempotencyKey ||
+    payload.txIdempotencyKey ||
+    payload.eventId ||
+    transaction?.id ||
+    meta.transactionSignature ||
+    payload.id ||
+    `${eventType}-${await sha256(rawBody)}`,
+  );
 }
 
-function paypalConfig(env) {
-  const mode = PAYPAL_ALLOWED_MODES.has(env.PAYPAL_MODE) ? env.PAYPAL_MODE : "sandbox";
+function moonPayPayloadDetails(env, payload) {
+  const transaction = moonPayTransactionObject(payload);
+  const meta = transaction?.meta || payload.meta || payload.data?.meta || {};
+  const customer = meta.customerDetails || transaction?.customerDetails || payload.customerDetails || payload.data?.customerDetails || {};
+  const subscription = payload.subscription || payload.subscriptionObject || payload.data?.subscription || payload.data?.subscriptionObject || {};
+  const additional = parseMoonPayAdditionalJSON(
+    customer.additionalJSON ??
+    meta.additionalJSON ??
+    transaction?.additionalJSON ??
+    payload.additionalJSON ??
+    payload.data?.additionalJSON,
+  );
+
+  const paylinkId = cleanMoonPayId(
+    payload.paylinkId ||
+    payload.paylink ||
+    payload.data?.paylinkId ||
+    subscription.paylinkId ||
+    subscription.paylink ||
+    transaction?.paylinkId ||
+    transaction?.paylink,
+  );
+
+  const tier = Number(
+    tierForMoonPayPaylink(env, paylinkId) ||
+    payload.tier ||
+    payload.data?.tier ||
+    additional.tier ||
+    additional.planTier ||
+    0,
+  );
+
+  const email = normalizeEmail(
+    customer.email ||
+    subscription.email ||
+    payload.email ||
+    payload.data?.email ||
+    additional.accountEmail ||
+    additional.email,
+  );
+
+  const transactionSignature = cleanMoonPayId(
+    meta.transactionSignature ||
+    payload.transactionSignature ||
+    payload.data?.transactionSignature,
+  );
+
+  return {
+    event: moonPayEventType(payload),
+    subscriptionId: cleanMoonPayId(
+      payload.subscriptionId ||
+      payload.paystreamId ||
+      payload.data?.subscriptionId ||
+      subscription.id ||
+      subscription.subscriptionId ||
+      ((payload.status || payload.renewalDate) ? payload.id : ""),
+    ),
+    transactionId: cleanMoonPayId(transaction?.id || meta.id || payload.transactionId || payload.data?.transactionId),
+    transactionSignature,
+    transactionStatus: String(meta.transactionStatus || payload.transactionStatus || payload.status || "completed").toLowerCase(),
+    transactionCreatedAt: cleanIsoDate(transaction?.createdAt || meta.createdAt || payload.transactionCreatedAt),
+    paylinkId,
+    tier,
+    userId: cleanRecordId(additional.userId || additional.customerId || payload.userId || payload.data?.userId),
+    checkoutSessionId: cleanRecordId(additional.checkoutSessionId || additional.sessionId || payload.checkoutSessionId || payload.data?.checkoutSessionId),
+    checkoutToken: cleanMoonPayToken(additional.checkoutToken || payload.checkoutToken || payload.data?.checkoutToken),
+    email,
+    payerWallet: cleanWallet(meta.senderPK || payload.senderPK || payload.payerWallet || payload.walletAddress || customer.walletAddress),
+    renewalDate: cleanIsoDate(payload.renewalDate || payload.data?.renewalDate || subscription.renewalDate || payload.currentPeriodEnd || payload.expiresAt),
+    createdAt: cleanIsoDate(payload.createdAt || payload.data?.createdAt || subscription.createdAt || transaction?.createdAt),
+    amountCents: moonPayAmountCents(meta),
+    currency: cleanCurrency(meta.tokenQuote?.from || meta.currency?.symbol || payload.currency?.symbol || payload.currency),
+    additional,
+  };
+}
+
+function moonPayTransactionObject(payload) {
+  return parseObject(payload.transactionObject) ||
+    parseObject(payload.transaction) ||
+    parseObject(payload.data?.transactionObject) ||
+    parseObject(payload.data?.transaction) ||
+    parseObject(payload.resource?.transactionObject) ||
+    parseObject(payload.resource?.transaction) ||
+    null;
+}
+
+function moonPayEventType(payload) {
+  const value = String(payload.event || payload.eventType || payload.event_type || payload.type || payload.data?.event || "").trim().toUpperCase();
+  if (value) return value;
+
+  const status = String(payload.status || payload.data?.status || "").trim().toUpperCase();
+  if (status === "ACTIVE") return "STARTED";
+  if (status === "EXPIRED") return "ENDED";
+  return "";
+}
+
+function moonPaySubscriptionRecordId(details) {
+  return cleanMoonPayId(details.subscriptionId) || (cleanMoonPayId(details.transactionId) ? `tx_${cleanMoonPayId(details.transactionId)}` : "");
+}
+
+function moonPayEndedStatus(eventType) {
+  if (eventType === "EXPIRED" || eventType === "ENDED") return "expired";
+  if (eventType === "CANCELLED") return "cancelled";
+  return "ended";
+}
+
+function moonPayPublicPlan(config, tier) {
+  const paylinkId = config.paylinks[tier] || "";
+  if (!paylinkId) return null;
+  return {
+    paylinkId,
+    checkoutUrl: config.checkoutUrls[tier] || moonPayHostedUrl(config, paylinkId),
+  };
+}
+
+function moonPayHostedUrl(config, paylinkId) {
+  const base = config.checkoutBaseUrl || (config.network === "test" ? "https://app.dev.hel.io/pay/" : "https://app.hel.io/pay/");
+  return `${base.replace(/\/+$/, "")}/${encodeURIComponent(paylinkId)}`;
+}
+
+function moonPayConfig(env) {
+  const rawMode = String(env.MOONPAY_MODE || env.HELIO_MODE || "test").trim().toLowerCase();
+  const mode = MOONPAY_ALLOWED_MODES.has(rawMode) ? rawMode : "test";
+  const network = cleanMoonPayNetwork(env.MOONPAY_NETWORK || env.HELIO_NETWORK) || (mode === "live" ? "main" : "test");
+  const paymentType = String(env.MOONPAY_PAYMENT_TYPE || env.HELIO_PAYMENT_TYPE || "paystream").trim() === "paylink" ? "paylink" : "paystream";
+  const primaryPaymentMethod = String(env.MOONPAY_PRIMARY_PAYMENT_METHOD || env.HELIO_PRIMARY_PAYMENT_METHOD || "crypto").trim() === "fiat" ? "fiat" : "crypto";
+
   return {
     mode,
-    clientId: env.PAYPAL_CLIENT_ID || "",
-    currency: env.PAYPAL_CURRENCY || "EUR",
-    plans: {
-      1: env.PAYPAL_TIER_1_PLAN_ID || "",
-      2: env.PAYPAL_TIER_2_PLAN_ID || "",
-      3: env.PAYPAL_TIER_3_PLAN_ID || "",
+    network,
+    paymentType,
+    primaryPaymentMethod,
+    checkoutBaseUrl: cleanUrl(env.MOONPAY_CHECKOUT_BASE_URL || env.HELIO_CHECKOUT_BASE_URL),
+    paylinks: {
+      1: cleanMoonPayId(env.MOONPAY_TIER_1_PAYLINK_ID || env.HELIO_TIER_1_PAYLINK_ID),
+      2: cleanMoonPayId(env.MOONPAY_TIER_2_PAYLINK_ID || env.HELIO_TIER_2_PAYLINK_ID),
+      3: cleanMoonPayId(env.MOONPAY_TIER_3_PAYLINK_ID || env.HELIO_TIER_3_PAYLINK_ID),
+    },
+    checkoutUrls: {
+      1: cleanUrl(env.MOONPAY_TIER_1_CHECKOUT_URL || env.HELIO_TIER_1_CHECKOUT_URL),
+      2: cleanUrl(env.MOONPAY_TIER_2_CHECKOUT_URL || env.HELIO_TIER_2_CHECKOUT_URL),
+      3: cleanUrl(env.MOONPAY_TIER_3_CHECKOUT_URL || env.HELIO_TIER_3_CHECKOUT_URL),
     },
   };
 }
 
-function paypalApiBase(env) {
-  return paypalConfig(env).mode === "live"
-    ? "https://api-m.paypal.com"
-    : "https://api-m.sandbox.paypal.com";
+function moonPayWebhookTokens(env) {
+  return [
+    env.MOONPAY_WEBHOOK_SHARED_TOKEN,
+    env.HELIO_WEBHOOK_SHARED_TOKEN,
+    env.MOONPAY_TIER_1_WEBHOOK_TOKEN,
+    env.MOONPAY_TIER_2_WEBHOOK_TOKEN,
+    env.MOONPAY_TIER_3_WEBHOOK_TOKEN,
+    env.HELIO_TIER_1_WEBHOOK_TOKEN,
+    env.HELIO_TIER_2_WEBHOOK_TOKEN,
+    env.HELIO_TIER_3_WEBHOOK_TOKEN,
+  ].map((value) => String(value || "").trim()).filter(Boolean);
 }
 
-function tierForPaypalPlan(env, planId) {
-  const config = paypalConfig(env);
-  return [1, 2, 3].find((tier) => config.plans[tier] && config.plans[tier] === planId) || 0;
+function tierForMoonPayPaylink(env, paylinkId) {
+  const cleanPaylinkId = cleanMoonPayId(paylinkId);
+  const config = moonPayConfig(env);
+  return [1, 2, 3].find((tier) => config.paylinks[tier] && config.paylinks[tier] === cleanPaylinkId) || 0;
 }
 
-function paypalSubscriptionIdFromResource(resource, eventType = "") {
-  if (String(eventType).startsWith("PAYMENT.")) {
-    return cleanPaypalId(
-      resource.billing_agreement_id ||
-      resource.subscription_id ||
-      resource.supplementary_data?.related_ids?.subscription_id ||
-      "",
-    );
+function parseMoonPayAdditionalJSON(value) {
+  let current = value;
+  for (let index = 0; index < 4; index += 1) {
+    if (!current) return {};
+    if (typeof current === "object") return current;
+    if (typeof current !== "string") return {};
+    const trimmed = current.trim();
+    if (!trimmed) return {};
+    try {
+      current = JSON.parse(trimmed);
+    } catch {
+      return {};
+    }
   }
+  return typeof current === "object" && current ? current : {};
+}
 
-  return cleanPaypalId(
-    resource.id ||
-    resource.billing_agreement_id ||
-    resource.subscription_id ||
-    resource.supplementary_data?.related_ids?.subscription_id ||
-    "",
+function parseObject(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  if (typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function moonPayAmountCents(meta) {
+  const decimal = Number(meta?.tokenQuote?.fromAmountDecimal || meta?.tokenQuote?.toAmountDecimal || NaN);
+  return Number.isFinite(decimal) ? Math.round(decimal * 100) : null;
+}
+
+function cleanMoonPayId(value) {
+  return String(value || "").trim().replace(/[^A-Za-z0-9._-]/g, "").slice(0, 160);
+}
+
+function cleanMoonPayToken(value) {
+  return String(value || "").trim().replace(/[^A-Za-z0-9._-]/g, "").slice(0, 160);
+}
+
+function cleanRecordId(value) {
+  return String(value || "").trim().replace(/[^A-Za-z0-9._-]/g, "").slice(0, 80);
+}
+
+function cleanWallet(value) {
+  return String(value || "").trim().replace(/[^A-Za-z0-9._:-]/g, "").slice(0, 160) || null;
+}
+
+function cleanCurrency(value) {
+  return String(value || "").trim().replace(/[^A-Za-z0-9._-]/g, "").slice(0, 24).toUpperCase() || null;
+}
+
+function cleanUrl(value) {
+  const text = String(value || "").trim();
+  if (!/^https:\/\//i.test(text)) return "";
+  try {
+    return new URL(text).toString();
+  } catch {
+    return "";
+  }
+}
+
+function cleanMoonPayNetwork(value) {
+  const network = String(value || "").trim().toLowerCase();
+  return network === "main" || network === "test" ? network : "";
+}
+
+function cleanIsoDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+async function hmacSha256Hex(secret, message) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
   );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
+  return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function paypalPeriodEnd(subscription) {
-  return subscription.billing_info?.next_billing_time || subscription.billing_info?.final_payment_time || null;
+function safeHexEqual(a, b) {
+  const left = hexToBytes(a);
+  const right = hexToBytes(b);
+  if (!left || !right) return false;
+  return timingSafeEqual(left, right);
 }
 
-function paypalAccessStatus(eventType) {
-  if (eventType === "BILLING.SUBSCRIPTION.EXPIRED") return "expired";
-  if (eventType === "BILLING.SUBSCRIPTION.CANCELLED") return "cancelled";
-  if (eventType === "BILLING.SUBSCRIPTION.PAYMENT.FAILED") return "payment_failed";
-  if (eventType === "BILLING.SUBSCRIPTION.SUSPENDED") return "suspended";
-  return "revoked";
-}
-
-function cleanPaypalId(value) {
-  return String(value || "").trim().replace(/[^A-Za-z0-9._-]/g, "").slice(0, 128);
+function hexToBytes(value) {
+  const clean = String(value || "").trim().toLowerCase().replace(/^sha256=/, "");
+  if (!/^[0-9a-f]+$/.test(clean) || clean.length % 2) return null;
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let index = 0; index < clean.length; index += 2) {
+    bytes[index / 2] = Number.parseInt(clean.slice(index, index + 2), 16);
+  }
+  return bytes;
 }
 
 async function upsertUser(env, input) {
@@ -902,18 +1143,18 @@ async function activeSubscription(env, userId) {
   const row = await env.DB.prepare(
     `SELECT tier, status, source, starts_at, expires_at
      FROM subscriptions
-     WHERE user_id = ? AND status = 'active' AND expires_at > ?
+     WHERE user_id = ? AND status = 'active' AND expires_at > ? AND source = 'moonpay'
      ORDER BY tier DESC, expires_at DESC
      LIMIT 1`,
   ).bind(userId, now).first();
 
   if (!row) {
-    const latestPaypal = await latestPaypalSubscription(env, userId);
-    return emptySubscription(latestPaypal);
+    const latestMoonPay = await latestMoonPaySubscription(env, userId);
+    return emptySubscription(latestMoonPay);
   }
 
-  const paypal = row.source === "paypal"
-    ? await latestPaypalSubscription(env, userId, Number(row.tier))
+  const moonpay = row.source === "moonpay"
+    ? await latestMoonPaySubscription(env, userId, Number(row.tier))
     : null;
 
   return {
@@ -925,27 +1166,29 @@ async function activeSubscription(env, userId) {
     canReadLocked: Number(row.tier) >= 1,
     canLaunchBuilds: Number(row.tier) >= 2,
     paymentSource: row.source,
-    renewalStatus: paypal?.status || (row.source === "paypal" ? "active" : row.status),
-    paypalSubscriptionId: paypal?.paypal_subscription_id || null,
-    paypalPayerEmail: paypal?.payer_email || null,
-    canCancelRenewal: row.source === "paypal" && paypal?.status === "active",
+    renewalStatus: moonpay?.status || (row.source === "moonpay" ? "active" : row.status),
+    moonpaySubscriptionId: moonpay?.moonpay_subscription_id || null,
+    moonpayCustomerEmail: moonpay?.customer_email || null,
+    moonpayPayerWallet: moonpay?.payer_wallet || null,
+    moonpayRenewalDate: moonpay?.renewal_date || null,
+    canCancelRenewal: false,
   };
 }
 
-async function latestPaypalSubscription(env, userId, tier = null) {
+async function latestMoonPaySubscription(env, userId, tier = null) {
   if (!env.DB) return null;
 
   const tierFilter = tier ? "AND tier = ?" : "";
   const statement = env.DB.prepare(
-    `SELECT paypal_subscription_id, tier, status, payer_email, current_period_end, updated_at
-     FROM paypal_subscriptions
+    `SELECT moonpay_subscription_id, tier, status, customer_email, payer_wallet, renewal_date, updated_at
+     FROM moonpay_subscriptions
      WHERE user_id = ? ${tierFilter}
      ORDER BY
        CASE status
          WHEN 'active' THEN 1
-         WHEN 'cancelled' THEN 2
-         WHEN 'payment_failed' THEN 3
-         WHEN 'suspended' THEN 4
+         WHEN 'renewed' THEN 2
+         WHEN 'pending' THEN 3
+         WHEN 'cancelled' THEN 4
          WHEN 'expired' THEN 5
          ELSE 6
        END,
@@ -958,19 +1201,21 @@ async function latestPaypalSubscription(env, userId, tier = null) {
     : statement.bind(userId).first();
 }
 
-function emptySubscription(latestPaypal = null) {
+function emptySubscription(latestMoonPay = null) {
   return {
     tier: 0,
-    status: latestPaypal?.status || "none",
-    source: latestPaypal ? "paypal" : null,
+    status: latestMoonPay?.status || "none",
+    source: latestMoonPay ? "moonpay" : null,
     startsAt: null,
     expiresAt: null,
     canReadLocked: false,
     canLaunchBuilds: false,
-    paymentSource: latestPaypal ? "paypal" : null,
-    renewalStatus: latestPaypal?.status || "none",
-    paypalSubscriptionId: latestPaypal?.paypal_subscription_id || null,
-    paypalPayerEmail: latestPaypal?.payer_email || null,
+    paymentSource: latestMoonPay ? "moonpay" : null,
+    renewalStatus: latestMoonPay?.status || "none",
+    moonpaySubscriptionId: latestMoonPay?.moonpay_subscription_id || null,
+    moonpayCustomerEmail: latestMoonPay?.customer_email || null,
+    moonpayPayerWallet: latestMoonPay?.payer_wallet || null,
+    moonpayRenewalDate: latestMoonPay?.renewal_date || null,
     canCancelRenewal: false,
   };
 }

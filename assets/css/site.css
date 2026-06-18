@@ -1338,14 +1338,18 @@ button {
   text-transform: none;
 }
 
-.paypal-buttons {
+.moonpay-widget {
   margin-top: 16px;
   margin-bottom: 10px;
   min-height: 48px;
 }
 
-.paypal-buttons iframe {
+.moonpay-widget iframe {
   filter: saturate(0.92);
+}
+
+.moonpay-widget > * {
+  width: 100%;
 }
 
 .membership-tiers .form-note {

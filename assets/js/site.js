@@ -37,27 +37,37 @@
     });
   };
 
-  const loadScriptOnce = (src, id) => new Promise((resolve, reject) => {
+  const loadScriptOnce = (src, id, globalReady = () => true) => new Promise((resolve, reject) => {
+    const finish = () => {
+      if (globalReady()) {
+        resolve();
+        return true;
+      }
+      return false;
+    };
+
     const existing = document.getElementById(id);
     if (existing) {
-      existing.addEventListener("load", resolve, { once: true });
-      if (window.paypal) resolve();
+      if (finish()) return;
+      existing.addEventListener("load", () => finish() || reject(new Error("Checkout script loaded but did not initialize.")), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Could not load checkout script.")), { once: true });
       return;
     }
 
     const script = document.createElement("script");
     script.id = id;
     script.src = src;
+    script.type = "module";
     script.async = true;
-    script.addEventListener("load", resolve, { once: true });
-    script.addEventListener("error", () => reject(new Error("Could not load PayPal")), { once: true });
+    script.crossOrigin = "anonymous";
+    script.addEventListener("load", () => finish() || reject(new Error("Checkout script loaded but did not initialize.")), { once: true });
+    script.addEventListener("error", () => reject(new Error("Could not load checkout script.")), { once: true });
     document.head.appendChild(script);
   });
 
   const renderAccount = (account) => {
     const panel = document.querySelector("[data-account-panel]");
-    const subscriptionActions = document.querySelector("[data-subscription-actions]");
-    const cancelButton = document.querySelector("[data-cancel-subscription]");
+    const renewalNote = document.querySelector("[data-renewal-note]");
     const subscriptionMessage = document.querySelector("[data-subscription-message]");
     setAuthNavVisible(Boolean(account.authenticated));
     if (!panel) return;
@@ -69,7 +79,7 @@
       setAuthOnlyVisible(false);
       setText("[data-account-state]", "Setup required");
       setText("[data-account-summary]", "The account database is not connected yet. Hosting needs the DB binding and migration.");
-      if (subscriptionActions) subscriptionActions.hidden = true;
+      if (renewalNote) renewalNote.hidden = true;
       return;
     }
 
@@ -83,7 +93,7 @@
       setText("[data-account-access-status]", "-");
       setText("[data-account-renewal-status]", "-");
       setText("[data-account-source]", "-");
-      if (subscriptionActions) subscriptionActions.hidden = true;
+      if (renewalNote) renewalNote.hidden = true;
       document.querySelectorAll("[data-auth-gate], [data-auth-trigger]").forEach((item) => {
         item.hidden = false;
       });
@@ -95,7 +105,7 @@
     const tier = Number(account.subscription?.tier || 0);
     const renewalStatus = account.subscription?.renewalStatus || account.subscription?.status || "none";
     const paymentSource = account.subscription?.paymentSource || account.subscription?.source || null;
-    const canCancelRenewal = Boolean(account.subscription?.canCancelRenewal);
+    const showMoonPayNote = tier > 0 && paymentSource === "moonpay";
     setText("[data-account-state]", "Connected");
     setText("[data-account-summary]", tier > 0
       ? renewalStatus === "cancelled"
@@ -109,11 +119,10 @@
     setText("[data-account-renewal-status]", renewalStatusLabel(renewalStatus, tier));
     setText("[data-account-source]", paymentSourceLabel(paymentSource));
 
-    if (subscriptionActions) subscriptionActions.hidden = !canCancelRenewal;
-    if (cancelButton) cancelButton.hidden = !canCancelRenewal;
+    if (renewalNote) renewalNote.hidden = !showMoonPayNote;
     if (subscriptionMessage) {
-      subscriptionMessage.textContent = canCancelRenewal
-        ? "Cancellation stops future monthly payments. Paid access remains until the expiry date."
+      subscriptionMessage.textContent = showMoonPayNote
+        ? "MoonPay Commerce controls renewal links. Access updates here after confirmed webhook events."
         : renewalStatus === "cancelled" && tier > 0
           ? "Renewal is cancelled. Paid access remains until the expiry date."
           : "";
@@ -145,7 +154,9 @@
     if (Number(tier || 0) <= 0 && (!status || status === "none")) return "-";
 
     const labels = {
-      active: "Auto-renews monthly",
+      active: "MoonPay membership active",
+      renewed: "MoonPay renewal confirmed",
+      ended: "Ended",
       cancelled: Number(tier || 0) > 0 ? "Cancelled; access remains" : "Cancelled",
       payment_failed: "Payment failed",
       suspended: "Suspended",
@@ -159,7 +170,7 @@
   };
 
   const paymentSourceLabel = (source) => {
-    if (source === "paypal") return "PayPal";
+    if (source === "moonpay") return "MoonPay Commerce";
     if (!source) return "-";
     return source;
   };
@@ -174,32 +185,6 @@
       setText("[data-account-state]", "Local preview");
       setText("[data-account-summary]", "Open the hosted Worker build to check account status.");
     }
-  };
-
-  const initSubscriptionCancel = () => {
-    const button = document.querySelector("[data-cancel-subscription]");
-    const message = document.querySelector("[data-subscription-message]");
-    if (!button) return;
-
-    button.addEventListener("click", async () => {
-      const confirmed = window.confirm("Cancel PayPal renewal? Paid access will remain until the expiry date.");
-      if (!confirmed) return;
-
-      const previous = button.textContent;
-      button.disabled = true;
-      if (message) message.textContent = "Cancelling PayPal renewal...";
-
-      try {
-        const result = await api("/api/paypal/subscription/cancel", { method: "POST" });
-        renderAccount(result.account || await api("/api/me"));
-        if (message) message.textContent = "Renewal is cancelled. Paid access remains until the expiry date.";
-      } catch (error) {
-        if (message) message.textContent = error.message || "Could not cancel PayPal renewal.";
-      } finally {
-        button.disabled = false;
-        button.textContent = previous;
-      }
-    });
   };
 
   const closeAuthForms = () => {
@@ -294,17 +279,17 @@
     });
   };
 
-  const initPayPalSubscriptions = async () => {
-    const containers = [...document.querySelectorAll("[data-paypal-buttons]")];
+  const initMoonPaySubscriptions = async () => {
+    const containers = [...document.querySelectorAll("[data-moonpay-widget]")];
     if (!containers.length) return;
 
     const setTierMessage = (tier, text) => {
-      const message = document.querySelector(`[data-paypal-message="${tier}"]`);
+      const message = document.querySelector(`[data-moonpay-message="${tier}"]`);
       if (message) message.textContent = text;
     };
 
     const setJoinButton = (tier, mode, message) => {
-      const button = document.querySelector(`[data-paypal-fallback="${tier}"]`);
+      const button = document.querySelector(`[data-moonpay-fallback="${tier}"]`);
       if (!button) return;
 
       button.hidden = false;
@@ -318,8 +303,28 @@
       };
     };
 
+    const pollMoonPayAccess = async (tier, showMessage) => {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, attempt ? 2200 : 900));
+        try {
+          const account = await api("/api/me");
+          const activeTier = Number(account.subscription?.tier || 0);
+          const source = account.subscription?.paymentSource || account.subscription?.source;
+          if (account.authenticated && source === "moonpay" && activeTier >= Number(tier || 0)) {
+            showMessage("MoonPay confirmed the membership. Redirecting to account...");
+            window.setTimeout(() => window.location.href = "account.html#connect-account", 700);
+            return true;
+          }
+        } catch {
+          // Keep the checkout UX calm; webhook delivery can finish independently.
+        }
+      }
+      showMessage("Payment submitted. Access will appear here after the MoonPay webhook is confirmed.");
+      return false;
+    };
+
     containers.forEach((container) => {
-      const tier = container.dataset.paypalButtons;
+      const tier = container.dataset.moonpayWidget;
       container.hidden = true;
       setJoinButton(tier, "login", "Log in or register before subscribing.");
     });
@@ -327,12 +332,12 @@
     try {
       const [account, config] = await Promise.all([
         api("/api/me"),
-        api("/api/paypal/config"),
+        api("/api/moonpay/config"),
       ]);
 
       if (!account.authenticated) {
         containers.forEach((container) => {
-          const tier = container.dataset.paypalButtons;
+          const tier = container.dataset.moonpayWidget;
           container.hidden = true;
           setJoinButton(tier, "login", "Log in or register before subscribing.");
           setTierMessage(tier, "Log in or register before subscribing.");
@@ -342,72 +347,81 @@
 
       if (!config.configured) {
         containers.forEach((container) => {
-          const tier = container.dataset.paypalButtons;
+          const tier = container.dataset.moonpayWidget;
           container.hidden = true;
-          setJoinButton(tier, "notice", "PayPal is not configured yet.");
-          setTierMessage(tier, "PayPal subscription plans are not configured yet.");
+          setJoinButton(tier, "notice", "MoonPay Commerce is not configured yet.");
+          setTierMessage(tier, "MoonPay Commerce subscription Pay Links are not configured yet.");
         });
         return;
       }
 
-      const sdkUrl = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(config.clientId)}&vault=true&intent=subscription&currency=${encodeURIComponent(config.currency || "EUR")}`;
-      await loadScriptOnce(sdkUrl, "paypal-subscriptions-sdk");
+      await loadScriptOnce(
+        config.widgetScriptUrl || "https://embed.hel.io/assets/index-v1.js",
+        "moonpay-commerce-checkout",
+        () => Boolean(window.helioCheckout),
+      );
 
-      containers.forEach((container) => {
-        const tier = Number(container.dataset.paypalButtons || 0);
-        const planId = config.plans?.[tier];
-        const fallback = document.querySelector(`[data-paypal-fallback="${tier}"]`);
+      await Promise.all(containers.map(async (container) => {
+        const tier = Number(container.dataset.moonpayWidget || 0);
+        const plan = config.plans?.[tier];
+        const fallback = document.querySelector(`[data-moonpay-fallback="${tier}"]`);
 
-        if (!planId || !window.paypal?.Buttons) {
-          setJoinButton(tier, "notice", "This tier is not connected to PayPal yet.");
-          setTierMessage(tier, "This tier is not connected to PayPal yet.");
+        if (!plan?.paylinkId || !window.helioCheckout) {
+          setJoinButton(tier, "notice", "This tier is not connected to MoonPay Commerce yet.");
+          setTierMessage(tier, "This tier is not connected to MoonPay Commerce yet.");
           return;
         }
+
+        const session = await api("/api/moonpay/checkout/session", {
+          method: "POST",
+          body: JSON.stringify({ tier }),
+        });
 
         if (fallback) fallback.hidden = true;
         container.hidden = false;
         container.innerHTML = "";
-        setTierMessage(tier, "Monthly subscription via PayPal.");
+        setTierMessage(tier, "Monthly membership via MoonPay Commerce.");
 
-        window.paypal.Buttons({
-          style: {
-            layout: "horizontal",
-            color: "silver",
-            shape: "rect",
-            label: "subscribe",
-            height: 44,
+        window.helioCheckout(container, {
+          paylinkId: session.paylinkId || plan.paylinkId,
+          network: session.network || config.network || "test",
+          paymentType: session.paymentType || config.paymentType || "paystream",
+          primaryPaymentMethod: session.primaryPaymentMethod || config.primaryPaymentMethod || "crypto",
+          display: "button",
+          theme: { themeMode: "dark" },
+          customTexts: {
+            mainButtonTitle: "Join with MoonPay",
+            payButtonTitle: "Start membership",
           },
-          createSubscription: (data, actions) => actions.subscription.create({
-            plan_id: planId,
-            custom_id: account.user?.id || "",
-          }),
-          onApprove: async (data) => {
-            setTierMessage(tier, "Checking subscription...");
-            await api("/api/paypal/subscription/activate", {
-              method: "POST",
-              body: JSON.stringify({
-                tier,
-                subscriptionId: data.subscriptionID,
-              }),
-            });
-            setTierMessage(tier, "Subscription active. Access is connected.");
-            window.setTimeout(() => window.location.href = "account.html#connect-account", 800);
+          autofillConfig: {
+            email: account.user?.email || "",
+            fullName: account.user?.displayName || "",
           },
-          onCancel: () => {
-            setTierMessage(tier, "Subscription was cancelled before approval.");
+          additionalJSON: {
+            provider: "moonpay_commerce",
+            source: "ravene_hub_membership",
+            userId: account.user?.id || "",
+            tier,
+            checkoutSessionId: session.sessionId || "",
+            checkoutToken: session.checkoutToken || "",
+            accountEmail: account.user?.email || "",
           },
+          onStartPayment: () => setTierMessage(tier, "MoonPay checkout started. Confirm the payment in the widget."),
+          onPending: () => setTierMessage(tier, "Payment is pending. Access activates after MoonPay confirms it."),
+          onSuccess: () => pollMoonPayAccess(tier, (message) => setTierMessage(tier, message)),
+          onCancel: () => setTierMessage(tier, "Checkout was closed before confirmation."),
           onError: (error) => {
             console.error(error);
-            setTierMessage(tier, "PayPal could not start the subscription.");
+            setTierMessage(tier, "MoonPay Commerce could not start the membership checkout.");
           },
-        }).render(container);
-      });
+        });
+      }));
     } catch (error) {
       containers.forEach((container) => {
-        const tier = container.dataset.paypalButtons;
+        const tier = container.dataset.moonpayWidget;
         container.hidden = true;
-        setJoinButton(tier, "notice", error.message || "PayPal is not available yet.");
-        setTierMessage(tier, error.message || "PayPal is not available yet.");
+        setJoinButton(tier, "notice", error.message || "MoonPay Commerce is not available yet.");
+        setTierMessage(tier, error.message || "MoonPay Commerce is not available yet.");
       });
     }
   };
@@ -559,8 +573,7 @@
   initAuthTabs();
   initPasswordAuth();
   initLogout();
-  initSubscriptionCancel();
   initBuildLaunch();
-  initPayPalSubscriptions();
+  initMoonPaySubscriptions();
   initPostComments();
 })();
