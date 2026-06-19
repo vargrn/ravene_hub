@@ -3,6 +3,7 @@
   let accountRequestVersion = 0;
   let authBusy = false;
   let logoutBusy = false;
+  let communityChatLoader = null;
 
   const guestAccount = () => ({
     authenticated: false,
@@ -107,12 +108,14 @@
   });
 
   const renderAccount = (account) => {
+    const authenticated = Boolean(account?.authenticated);
+    setAuthNavVisible(authenticated);
+    setGuestOnlyVisible(!authenticated);
     const panel = document.querySelector("[data-account-panel]");
     const renewalNote = document.querySelector("[data-renewal-note]");
     const subscriptionMessage = document.querySelector("[data-subscription-message]");
     const cancelRenewalButton = document.querySelector("[data-cancel-renewal-button]");
     const resumeRenewalButton = document.querySelector("[data-resume-renewal-button]");
-    setGuestOnlyVisible(!account.authenticated);
     if (!panel) return;
 
     panel.classList.toggle("is-connected", Boolean(account.authenticated));
@@ -223,6 +226,10 @@
     document.querySelectorAll("[data-auth-form], [data-auth-gate], [data-auth-trigger]").forEach((item) => {
       item.hidden = true;
     });
+
+    if (communityChatLoader) {
+      communityChatLoader();
+    }
   };
 
   const accountAccessLabel = (subscription) => {
@@ -291,7 +298,7 @@
   };
 
   const initAccount = async () => {
-    if (!document.querySelector("[data-account-panel]")) return;
+    if (!document.querySelector("[data-account-panel], [data-auth-nav], [data-auth-only], [data-guest-only], [data-community-chat]")) return;
 
     const version = ++accountRequestVersion;
     try {
@@ -1198,14 +1205,22 @@
     const message = document.querySelector("[data-chat-message]");
 
     const loadChat = async () => {
+      if (!currentAccountCache?.authenticated) {
+        renderChatMessages([]);
+        if (message) message.textContent = "Login is required for chat.";
+        return;
+      }
+
       try {
         const data = await api("/api/community/chat");
         renderChatMessages(data.messages || []);
-        if (message) message.textContent = "Registered-user chat.";
+        if (message) message.textContent = "Shared chat for registered users.";
       } catch (error) {
-        if (message) message.textContent = error.message || "Chat is available after login.";
+        if (message) message.textContent = error.message || "Chat is temporarily unavailable.";
       }
     };
+
+    communityChatLoader = loadChat;
 
     if (form) {
       form.addEventListener("submit", async (event) => {
@@ -1238,7 +1253,9 @@
       }
     });
 
-    await loadChat();
+    if (currentAccountCache?.authenticated) {
+      await loadChat();
+    }
   };
 
   const initShareButtons = () => {

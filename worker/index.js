@@ -710,10 +710,42 @@ async function unlikeHubPost(request, env, slug) {
 
 async function handleCommunityChatApi(request, env, url) {
   if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+  await ensureCommunityChatSchema(env);
   if (url.pathname === "/api/community/chat" && request.method === "GET") return listChatMessages(request, env);
   if (url.pathname === "/api/community/chat" && request.method === "POST") return createChatMessage(request, env);
   if (url.pathname.startsWith("/api/community/chat/") && request.method === "DELETE") return deleteChatMessage(request, env, url);
   return json({ error: "Not found" }, { status: 404 });
+}
+
+async function ensureCommunityChatSchema(env) {
+  if (!env.DB) return;
+  await env.DB.batch([
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS community_chat_messages (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('active', 'deleted')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT,
+      deleted_by TEXT REFERENCES users(id) ON DELETE SET NULL
+    )`),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_chat_created ON community_chat_messages(created_at)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_chat_status_created ON community_chat_messages(status, created_at)"),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS moderation_logs (
+      id TEXT PRIMARY KEY,
+      actor_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      target_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      reason TEXT,
+      created_at TEXT NOT NULL,
+      raw_payload TEXT
+    )`),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_moderation_logs_target ON moderation_logs(target_type, target_id)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_moderation_logs_actor ON moderation_logs(actor_id, created_at)"),
+  ]);
 }
 
 async function listChatMessages(request, env) {
