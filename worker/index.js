@@ -44,12 +44,36 @@ async function handleApi(request, env, url) {
       return json(account);
     }
 
+    if (url.pathname === "/api/account/profile" && request.method === "GET") {
+      return getAccountProfile(request, env);
+    }
+
+    if (url.pathname === "/api/account/profile" && request.method === "PUT") {
+      return updateAccountProfile(request, env);
+    }
+
+    if (url.pathname === "/api/posts" || url.pathname.startsWith("/api/posts/")) {
+      return handlePostsApi(request, env, url);
+    }
+
+    if (url.pathname === "/api/community/chat" || url.pathname.startsWith("/api/community/chat/")) {
+      return handleCommunityChatApi(request, env, url);
+    }
+
+    if (url.pathname === "/api/admin/users" || url.pathname.startsWith("/api/admin/users/")) {
+      return handleAdminUsersApi(request, env, url);
+    }
+
     if (url.pathname === "/api/post-comments" && request.method === "GET") {
-      return listPostComments(env, url);
+      return listPostComments(request, env, url);
     }
 
     if (url.pathname === "/api/post-comments" && request.method === "POST") {
       return createPostComment(request, env);
+    }
+
+    if (url.pathname.startsWith("/api/post-comments/") && request.method === "DELETE") {
+      return deletePostComment(request, env, url);
     }
 
     if (url.pathname === "/api/auth/login-code" && request.method === "POST") {
@@ -124,6 +148,10 @@ async function currentAccount(request, env) {
       user: null,
       subscription: emptySubscription(),
       identities: [],
+      role: "guest",
+      permissions: permissionsForRole("guest", false),
+      profile: emptyProfile(),
+      stats: emptyAccountStats(),
     };
   }
 
@@ -137,15 +165,23 @@ async function currentAccount(request, env) {
       user: null,
       subscription: emptySubscription(),
       identities: [],
+      role: "guest",
+      permissions: permissionsForRole("guest", false),
+      profile: emptyProfile(),
+      stats: emptyAccountStats(),
     };
   }
 
-  const [subscription, identities] = await Promise.all([
+  const [subscription, identities, role, profile, stats] = await Promise.all([
     activeSubscription(env, sessionUser.id),
     env.DB.prepare(
       "SELECT provider, provider_user_id, provider_username FROM user_identities WHERE user_id = ? ORDER BY created_at DESC",
     ).bind(sessionUser.id).all(),
+    accountRole(env, sessionUser),
+    accountProfile(env, sessionUser.id),
+    accountStats(env, sessionUser.id),
   ]);
+  const permissions = permissionsForRole(role, true);
 
   return {
     authenticated: true,
@@ -155,7 +191,12 @@ async function currentAccount(request, env) {
       email: sessionUser.email,
       displayName: sessionUser.display_name || sessionUser.email || "Ravene Hub user",
       avatarUrl: sessionUser.avatar_url,
+      role,
     },
+    role,
+    permissions,
+    profile,
+    stats,
     subscription,
     identities: identities.results || [],
   };
@@ -377,14 +418,15 @@ async function createBuildLaunch(request, env) {
   });
 }
 
-async function listPostComments(env, url) {
+async function listPostComments(request, env, url) {
   if (!env.DB) return json({ comments: [], setupRequired: true });
 
   const postSlug = cleanPostSlug(url.searchParams.get("post"));
   if (!postSlug) return json({ error: "Post slug is required" }, { status: 400 });
 
+  const account = await currentAccount(request, env);
   const rows = await env.DB.prepare(
-    `SELECT post_comments.id, post_comments.body, post_comments.created_at, users.display_name, users.email, users.avatar_url
+    `SELECT post_comments.id, post_comments.user_id, post_comments.body, post_comments.created_at, users.display_name, users.email, users.avatar_url
      FROM post_comments
      JOIN users ON users.id = post_comments.user_id
      WHERE post_comments.post_slug = ?
@@ -392,6 +434,7 @@ async function listPostComments(env, url) {
      LIMIT 100`,
   ).bind(postSlug).all();
 
+  const canModerate = Boolean(account.permissions?.canModerate);
   return json({
     comments: (rows.results || []).map((row) => ({
       id: row.id,
@@ -399,7 +442,9 @@ async function listPostComments(env, url) {
       createdAt: row.created_at,
       authorName: row.display_name || row.email || "Ravene Hub user",
       authorAvatar: row.avatar_url || null,
+      canDelete: Boolean(canModerate || (account.authenticated && account.user?.id === row.user_id)),
     })),
+    canModerate,
   });
 }
 
@@ -411,7 +456,7 @@ async function createPostComment(request, env) {
 
   const body = await readJson(request);
   const postSlug = cleanPostSlug(body.postSlug);
-  const comment = String(body.body || "").trim().replace(/\s+\n/g, "\n").slice(0, 2000);
+  const comment = cleanLongText(body.body, 2000);
 
   if (!postSlug) return json({ error: "Post slug is required" }, { status: 400 });
   if (comment.length < 1) return json({ error: "Write a comment first" }, { status: 400 });
@@ -421,7 +466,372 @@ async function createPostComment(request, env) {
     "INSERT INTO post_comments (id, post_slug, user_id, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
   ).bind(randomId(), postSlug, account.user.id, comment, now, now).run();
 
-  return listPostComments(env, new URL(`https://local/api/post-comments?post=${encodeURIComponent(postSlug)}`));
+  return listPostComments(request, env, new URL(`https://local/api/post-comments?post=${encodeURIComponent(postSlug)}`));
+}
+
+async function deletePostComment(request, env, url) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+
+  const commentId = cleanRecordId(decodeURIComponent(url.pathname.split("/").pop() || ""));
+  if (!commentId) return json({ error: "Comment id is required" }, { status: 400 });
+
+  const row = await env.DB.prepare("SELECT id, user_id, post_slug FROM post_comments WHERE id = ? LIMIT 1").bind(commentId).first();
+  if (!row) return json({ error: "Comment was not found" }, { status: 404 });
+
+  const canDelete = account.permissions?.canModerate || row.user_id === account.user.id;
+  if (!canDelete) return json({ error: "Moderator access is required" }, { status: 403 });
+
+  await env.DB.prepare("DELETE FROM post_comments WHERE id = ?").bind(commentId).run();
+  await writeModerationLog(env, {
+    actorId: account.user.id,
+    targetUserId: row.user_id,
+    targetType: "post_comment",
+    targetId: row.id,
+    action: row.user_id === account.user.id ? "delete_own_comment" : "delete_comment",
+  });
+
+  return listPostComments(request, env, new URL(`https://local/api/post-comments?post=${encodeURIComponent(row.post_slug)}`));
+}
+
+async function getAccountProfile(request, env) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+  return json({ user: account.user, profile: account.profile, stats: account.stats, role: account.role, permissions: account.permissions });
+}
+
+async function updateAccountProfile(request, env) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+
+  const body = await readJson(request);
+  const displayName = cleanDisplayName(body.displayName) || account.user.displayName;
+  const avatarUrl = cleanUrl(body.avatarUrl, 500) || null;
+  const bio = cleanLongText(body.bio, 600);
+  const websiteUrl = cleanUrl(body.websiteUrl, 500) || null;
+  const publicNote = cleanLongText(body.publicNote, 600);
+  const now = new Date().toISOString();
+
+  await env.DB.batch([
+    env.DB.prepare("UPDATE users SET display_name = ?, avatar_url = ?, updated_at = ? WHERE id = ?")
+      .bind(displayName, avatarUrl, now, account.user.id),
+    env.DB.prepare(
+      `INSERT INTO user_profiles (user_id, bio, website_url, public_note, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET bio = excluded.bio, website_url = excluded.website_url, public_note = excluded.public_note, updated_at = excluded.updated_at`,
+    ).bind(account.user.id, bio || null, websiteUrl, publicNote || null, now),
+  ]);
+
+  return getAccountProfile(request, env);
+}
+
+async function handlePostsApi(request, env, url) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+
+  const parts = url.pathname.split("/").filter(Boolean); // api, posts, :slug, action
+  const slug = cleanPostSlug(decodeURIComponent(parts[2] || ""));
+  const action = parts[3] || "";
+
+  if (url.pathname === "/api/posts" && request.method === "GET") return listHubPosts(request, env, url);
+  if (url.pathname === "/api/posts" && request.method === "POST") return createHubPost(request, env);
+  if (!slug) return json({ error: "Post slug is required" }, { status: 400 });
+  if (action === "like" && request.method === "POST") return likeHubPost(request, env, slug);
+  if (action === "like" && request.method === "DELETE") return unlikeHubPost(request, env, slug);
+  if (!action && request.method === "GET") return getHubPost(request, env, slug);
+  if (!action && request.method === "PUT") return updateHubPost(request, env, slug);
+  if (!action && request.method === "DELETE") return deleteHubPost(request, env, slug);
+
+  return json({ error: "Not found" }, { status: 404 });
+}
+
+async function listHubPosts(request, env, url) {
+  const account = await currentAccount(request, env);
+  const canManage = Boolean(account.permissions?.canManagePosts);
+  const scope = url.searchParams.get("scope") || "published";
+  const includeAll = canManage && scope === "all";
+  const rows = await env.DB.prepare(
+    `SELECT hub_posts.*,
+       (SELECT COUNT(*) FROM post_likes WHERE post_likes.post_id = hub_posts.id) AS like_count,
+       (SELECT COUNT(*) FROM post_comments WHERE post_comments.post_slug = hub_posts.slug) AS comment_count
+     FROM hub_posts
+     WHERE deleted_at IS NULL
+       AND (? = 1 OR status = 'published')
+     ORDER BY COALESCE(published_at, created_at) DESC
+     LIMIT 80`,
+  ).bind(includeAll ? 1 : 0).all();
+
+  const posts = [];
+  for (const row of rows.results || []) {
+    if (!includeAll && !canReadVisibility(row.visibility, account)) continue;
+    posts.push(await publicPost(env, row, account, { includeBody: false }));
+  }
+  return json({ posts, canManagePosts: canManage });
+}
+
+async function getHubPost(request, env, slug) {
+  const account = await currentAccount(request, env);
+  const row = await env.DB.prepare(
+    `SELECT hub_posts.*,
+       (SELECT COUNT(*) FROM post_likes WHERE post_likes.post_id = hub_posts.id) AS like_count,
+       (SELECT COUNT(*) FROM post_comments WHERE post_comments.post_slug = hub_posts.slug) AS comment_count
+     FROM hub_posts
+     WHERE slug = ? AND deleted_at IS NULL
+     LIMIT 1`,
+  ).bind(slug).first();
+  if (!row) return json({ error: "Post was not found" }, { status: 404 });
+  if (row.status !== "published" && !account.permissions?.canManagePosts) return json({ error: "Post is not published" }, { status: 403 });
+  if (!canReadVisibility(row.visibility, account)) return json({ error: "This post requires higher access" }, { status: 403 });
+  return json({ post: await publicPost(env, row, account, { includeBody: true }), canManagePosts: Boolean(account.permissions?.canManagePosts) });
+}
+
+async function createHubPost(request, env) {
+  const account = await requirePermission(request, env, "canManagePosts", "Admin access is required");
+  if (account instanceof Response) return account;
+  const body = await readJson(request);
+  const now = new Date().toISOString();
+  const title = cleanLongText(body.title, 180);
+  if (!title) return json({ error: "Post title is required" }, { status: 400 });
+  const slug = cleanPostSlug(body.slug) || cleanPostSlug(title);
+  if (!slug) return json({ error: "Post slug is required" }, { status: 400 });
+
+  const existing = await env.DB.prepare("SELECT id FROM hub_posts WHERE slug = ? LIMIT 1").bind(slug).first();
+  if (existing) return json({ error: "Post slug is already used" }, { status: 409 });
+
+  const status = cleanPostStatus(body.status);
+  const visibility = cleanPostVisibility(body.visibility);
+  const postId = randomId();
+  await env.DB.prepare(
+    `INSERT INTO hub_posts
+      (id, slug, title, excerpt, body, status, visibility, category, cover_url, author_id, author_name, published_at, created_at, updated_at, deleted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+  ).bind(
+    postId,
+    slug,
+    title,
+    cleanLongText(body.excerpt, 500) || null,
+    cleanLongText(body.body, 40000),
+    status,
+    visibility,
+    cleanLongText(body.category, 80) || null,
+    cleanUrl(body.coverUrl, 500) || null,
+    account.user.id,
+    account.user.displayName,
+    status === "published" ? now : null,
+    now,
+    now,
+  ).run();
+
+  await replacePostMedia(env, postId, body.media || [], now);
+  await writeModerationLog(env, { actorId: account.user.id, targetType: "hub_post", targetId: postId, action: "create_post" });
+  return getHubPost(request, env, slug);
+}
+
+async function updateHubPost(request, env, slug) {
+  const account = await requirePermission(request, env, "canManagePosts", "Admin access is required");
+  if (account instanceof Response) return account;
+  const existing = await env.DB.prepare("SELECT * FROM hub_posts WHERE slug = ? AND deleted_at IS NULL LIMIT 1").bind(slug).first();
+  if (!existing) return json({ error: "Post was not found" }, { status: 404 });
+
+  const body = await readJson(request);
+  const now = new Date().toISOString();
+  const nextTitle = cleanLongText(body.title, 180) || existing.title;
+  const nextSlug = cleanPostSlug(body.slug) || existing.slug;
+  const nextStatus = cleanPostStatus(body.status || existing.status);
+  const nextVisibility = cleanPostVisibility(body.visibility || existing.visibility);
+
+  if (nextSlug !== existing.slug) {
+    const conflict = await env.DB.prepare("SELECT id FROM hub_posts WHERE slug = ? AND id <> ? LIMIT 1").bind(nextSlug, existing.id).first();
+    if (conflict) return json({ error: "Post slug is already used" }, { status: 409 });
+  }
+
+  const publishedAt = nextStatus === "published" ? (existing.published_at || now) : null;
+  await env.DB.prepare(
+    `UPDATE hub_posts
+     SET slug = ?, title = ?, excerpt = ?, body = ?, status = ?, visibility = ?, category = ?, cover_url = ?, published_at = ?, updated_at = ?
+     WHERE id = ?`,
+  ).bind(
+    nextSlug,
+    nextTitle,
+    cleanLongText(body.excerpt, 500) || null,
+    cleanLongText(body.body, 40000),
+    nextStatus,
+    nextVisibility,
+    cleanLongText(body.category, 80) || null,
+    cleanUrl(body.coverUrl, 500) || null,
+    publishedAt,
+    now,
+    existing.id,
+  ).run();
+
+  if (Array.isArray(body.media)) await replacePostMedia(env, existing.id, body.media, now);
+  await writeModerationLog(env, { actorId: account.user.id, targetType: "hub_post", targetId: existing.id, action: "update_post" });
+  return getHubPost(request, env, nextSlug);
+}
+
+async function deleteHubPost(request, env, slug) {
+  const account = await requirePermission(request, env, "canManagePosts", "Admin access is required");
+  if (account instanceof Response) return account;
+  const row = await env.DB.prepare("SELECT id FROM hub_posts WHERE slug = ? AND deleted_at IS NULL LIMIT 1").bind(slug).first();
+  if (!row) return json({ error: "Post was not found" }, { status: 404 });
+  const now = new Date().toISOString();
+  await env.DB.prepare("UPDATE hub_posts SET status = 'deleted', deleted_at = ?, updated_at = ? WHERE id = ?").bind(now, now, row.id).run();
+  await writeModerationLog(env, { actorId: account.user.id, targetType: "hub_post", targetId: row.id, action: "delete_post" });
+  return json({ ok: true });
+}
+
+async function likeHubPost(request, env, slug) {
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+  const row = await env.DB.prepare("SELECT id, visibility, status FROM hub_posts WHERE slug = ? AND deleted_at IS NULL LIMIT 1").bind(slug).first();
+  if (!row) return json({ error: "Post was not found" }, { status: 404 });
+  if (row.status !== "published" || !canReadVisibility(row.visibility, account)) return json({ error: "This post is not available" }, { status: 403 });
+  await env.DB.prepare("INSERT OR IGNORE INTO post_likes (post_id, user_id, created_at) VALUES (?, ?, ?)").bind(row.id, account.user.id, new Date().toISOString()).run();
+  return getHubPost(request, env, slug);
+}
+
+async function unlikeHubPost(request, env, slug) {
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+  const row = await env.DB.prepare("SELECT id FROM hub_posts WHERE slug = ? AND deleted_at IS NULL LIMIT 1").bind(slug).first();
+  if (!row) return json({ error: "Post was not found" }, { status: 404 });
+  await env.DB.prepare("DELETE FROM post_likes WHERE post_id = ? AND user_id = ?").bind(row.id, account.user.id).run();
+  return getHubPost(request, env, slug);
+}
+
+async function handleCommunityChatApi(request, env, url) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+  if (url.pathname === "/api/community/chat" && request.method === "GET") return listChatMessages(request, env);
+  if (url.pathname === "/api/community/chat" && request.method === "POST") return createChatMessage(request, env);
+  if (url.pathname.startsWith("/api/community/chat/") && request.method === "DELETE") return deleteChatMessage(request, env, url);
+  return json({ error: "Not found" }, { status: 404 });
+}
+
+async function listChatMessages(request, env) {
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+  const rows = await env.DB.prepare(
+    `SELECT community_chat_messages.id, community_chat_messages.user_id, community_chat_messages.body, community_chat_messages.created_at,
+            users.display_name, users.email, users.avatar_url
+     FROM community_chat_messages
+     JOIN users ON users.id = community_chat_messages.user_id
+     WHERE community_chat_messages.status = 'active'
+     ORDER BY community_chat_messages.created_at DESC
+     LIMIT 80`,
+  ).all();
+  const messages = (rows.results || []).reverse().map((row) => ({
+    id: row.id,
+    body: row.body,
+    createdAt: row.created_at,
+    authorName: row.display_name || row.email || "Ravene Hub user",
+    authorAvatar: row.avatar_url || null,
+    own: row.user_id === account.user.id,
+    canDelete: Boolean(account.permissions?.canModerate || row.user_id === account.user.id),
+  }));
+  return json({ messages, canModerate: Boolean(account.permissions?.canModerate) });
+}
+
+async function createChatMessage(request, env) {
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+  const body = await readJson(request);
+  const message = cleanLongText(body.body, 1800);
+  if (!message) return json({ error: "Write a message first" }, { status: 400 });
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO community_chat_messages (id, user_id, body, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)",
+  ).bind(randomId(), account.user.id, message, now, now).run();
+  return listChatMessages(request, env);
+}
+
+async function deleteChatMessage(request, env, url) {
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+  const messageId = cleanRecordId(decodeURIComponent(url.pathname.split("/").pop() || ""));
+  const row = await env.DB.prepare("SELECT id, user_id FROM community_chat_messages WHERE id = ? AND status = 'active' LIMIT 1").bind(messageId).first();
+  if (!row) return json({ error: "Message was not found" }, { status: 404 });
+  const canDelete = account.permissions?.canModerate || row.user_id === account.user.id;
+  if (!canDelete) return json({ error: "Moderator access is required" }, { status: 403 });
+  const now = new Date().toISOString();
+  await env.DB.prepare("UPDATE community_chat_messages SET status = 'deleted', deleted_at = ?, deleted_by = ?, updated_at = ? WHERE id = ?")
+    .bind(now, account.user.id, now, row.id).run();
+  await writeModerationLog(env, {
+    actorId: account.user.id,
+    targetUserId: row.user_id,
+    targetType: "chat_message",
+    targetId: row.id,
+    action: row.user_id === account.user.id ? "delete_own_chat_message" : "delete_chat_message",
+  });
+  return listChatMessages(request, env);
+}
+
+async function handleAdminUsersApi(request, env, url) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+  if (url.pathname === "/api/admin/users" && request.method === "GET") return listAdminUsers(request, env);
+  if (url.pathname.startsWith("/api/admin/users/") && request.method === "PUT") return updateUserRole(request, env, url);
+  return json({ error: "Not found" }, { status: 404 });
+}
+
+async function listAdminUsers(request, env) {
+  const account = await requirePermission(request, env, "canManageUsers", "Admin access is required");
+  if (account instanceof Response) return account;
+  const rows = await env.DB.prepare(
+    `SELECT users.id, users.email, users.display_name, users.avatar_url, users.created_at,
+            COALESCE(user_roles.role, 'member') AS stored_role,
+            (SELECT MAX(tier) FROM subscriptions WHERE subscriptions.user_id = users.id AND subscriptions.status = 'active' AND subscriptions.expires_at > datetime('now')) AS tier
+     FROM users
+     LEFT JOIN user_roles ON user_roles.user_id = users.id
+     ORDER BY users.created_at DESC
+     LIMIT 200`,
+  ).all();
+  const users = [];
+  for (const row of rows.results || []) {
+    const role = await accountRole(env, row);
+    users.push({
+      id: row.id,
+      email: row.email,
+      displayName: row.display_name || row.email || "Ravene Hub user",
+      avatarUrl: row.avatar_url || null,
+      role,
+      tier: Number(row.tier || 0),
+      createdAt: row.created_at,
+      isOwner: isEnvAdminEmail(env, row.email),
+    });
+  }
+  return json({ users });
+}
+
+async function updateUserRole(request, env, url) {
+  const account = await requirePermission(request, env, "canManageUsers", "Admin access is required");
+  if (account instanceof Response) return account;
+  const userId = cleanRecordId(decodeURIComponent(url.pathname.split("/").pop() || ""));
+  const body = await readJson(request);
+  const role = cleanRole(body.role);
+  if (!role || role === "guest") return json({ error: "Role must be member, moderator, or admin" }, { status: 400 });
+
+  const target = await env.DB.prepare("SELECT id, email FROM users WHERE id = ? LIMIT 1").bind(userId).first();
+  if (!target) return json({ error: "User was not found" }, { status: 404 });
+  if (isEnvAdminEmail(env, target.email) && role !== "admin") {
+    return json({ error: "Owner email from ADMIN_EMAILS cannot be demoted from the panel" }, { status: 400 });
+  }
+
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO user_roles (user_id, role, assigned_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET role = excluded.role, assigned_by = excluded.assigned_by, updated_at = excluded.updated_at`,
+  ).bind(target.id, role, account.user.id, now, now).run();
+  await writeModerationLog(env, {
+    actorId: account.user.id,
+    targetUserId: target.id,
+    targetType: "user",
+    targetId: target.id,
+    action: "set_role",
+    rawPayload: { role },
+  });
+  return listAdminUsers(request, env);
 }
 
 async function createSessionResponse(request, env, user) {
@@ -1251,14 +1661,18 @@ function cleanCurrency(value) {
   return String(value || "").trim().replace(/[^A-Za-z0-9._-]/g, "").slice(0, 24).toUpperCase() || null;
 }
 
-function cleanUrl(value) {
-  const text = String(value || "").trim();
-  if (!/^https:\/\//i.test(text)) return "";
-  try {
-    return new URL(text).toString();
-  } catch {
-    return "";
+function cleanUrl(value, maxLength = 500) {
+  const text = String(value || "").trim().slice(0, maxLength);
+  if (!text) return "";
+  if (/^https:\/\//i.test(text)) {
+    try {
+      return new URL(text).toString();
+    } catch {
+      return "";
+    }
   }
+  if (/^assets\//i.test(text) || /^builds\//i.test(text)) return text;
+  return "";
 }
 
 function cleanMoonPayNetwork(value) {
@@ -1695,6 +2109,225 @@ function laterIso(a, b) {
   if (!a) return b;
   if (!b) return a;
   return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+}
+
+
+async function accountRole(env, user) {
+  if (!user) return "guest";
+  if (isEnvAdminEmail(env, user.email)) return "admin";
+  try {
+    const row = await env.DB.prepare("SELECT role FROM user_roles WHERE user_id = ? LIMIT 1").bind(user.id).first();
+    return cleanRole(row?.role) || "member";
+  } catch (error) {
+    if (isMissingSchemaError(error, ["user_roles"])) return "member";
+    throw error;
+  }
+}
+
+function permissionsForRole(role, authenticated) {
+  const normalized = cleanRole(role) || (authenticated ? "member" : "guest");
+  const isAdmin = normalized === "admin";
+  const isModerator = normalized === "moderator" || isAdmin;
+  return {
+    canReadPublic: true,
+    canReadRegistered: Boolean(authenticated),
+    canChat: Boolean(authenticated),
+    canLike: Boolean(authenticated),
+    canComment: Boolean(authenticated),
+    canModerate: isModerator,
+    canManagePosts: isAdmin,
+    canManageUsers: isAdmin,
+    canViewAdminPanel: isModerator || isAdmin,
+  };
+}
+
+function cleanRole(value) {
+  const role = String(value || "").trim().toLowerCase();
+  return ["guest", "member", "moderator", "admin"].includes(role) ? role : "";
+}
+
+function envAdminEmails(env) {
+  return String(env.ADMIN_EMAILS || env.OWNER_EMAILS || env.SITE_ADMINS || "")
+    .split(/[\s,;]+/)
+    .map((email) => normalizeEmail(email))
+    .filter(Boolean);
+}
+
+function isEnvAdminEmail(env, email) {
+  const normalized = normalizeEmail(email);
+  return Boolean(normalized && envAdminEmails(env).includes(normalized));
+}
+
+async function accountProfile(env, userId) {
+  try {
+    const row = await env.DB.prepare("SELECT bio, website_url, public_note, updated_at FROM user_profiles WHERE user_id = ? LIMIT 1").bind(userId).first();
+    return {
+      bio: row?.bio || "",
+      websiteUrl: row?.website_url || "",
+      publicNote: row?.public_note || "",
+      updatedAt: row?.updated_at || null,
+    };
+  } catch (error) {
+    if (isMissingSchemaError(error, ["user_profiles"])) return emptyProfile();
+    throw error;
+  }
+}
+
+function emptyProfile() {
+  return { bio: "", websiteUrl: "", publicNote: "", updatedAt: null };
+}
+
+async function accountStats(env, userId) {
+  try {
+    const [comments, likes, chat] = await Promise.all([
+      env.DB.prepare("SELECT COUNT(*) AS count FROM post_comments WHERE user_id = ?").bind(userId).first(),
+      env.DB.prepare("SELECT COUNT(*) AS count FROM post_likes WHERE user_id = ?").bind(userId).first(),
+      env.DB.prepare("SELECT COUNT(*) AS count FROM community_chat_messages WHERE user_id = ? AND status = 'active'").bind(userId).first(),
+    ]);
+    return {
+      comments: Number(comments?.count || 0),
+      likes: Number(likes?.count || 0),
+      chatMessages: Number(chat?.count || 0),
+    };
+  } catch (error) {
+    if (isMissingSchemaError(error, ["post_likes", "community_chat_messages"])) return emptyAccountStats();
+    throw error;
+  }
+}
+
+function emptyAccountStats() {
+  return { comments: 0, likes: 0, chatMessages: 0 };
+}
+
+async function requirePermission(request, env, permission, message = "Access denied") {
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+  if (!account.permissions?.[permission]) return json({ error: message }, { status: 403 });
+  return account;
+}
+
+function canReadVisibility(visibility, account) {
+  const level = String(visibility || "public").toLowerCase();
+  if (level === "public") return true;
+  if (!account?.authenticated) return false;
+  if (account.permissions?.canManagePosts || account.permissions?.canModerate) return true;
+  if (level === "registered") return true;
+  const tier = Number(account.subscription?.tier || 0);
+  if (level === "tier1") return tier >= 1;
+  if (level === "tier2") return tier >= 2;
+  if (level === "tier3") return tier >= 3;
+  if (level === "moderator") return Boolean(account.permissions?.canModerate);
+  if (level === "admin") return Boolean(account.permissions?.canManagePosts);
+  return false;
+}
+
+async function publicPost(env, row, account, options = {}) {
+  const mediaRows = await env.DB.prepare(
+    "SELECT id, media_type, url, title, caption, sort_order FROM post_media WHERE post_id = ? ORDER BY sort_order ASC, created_at ASC",
+  ).bind(row.id).all();
+  let likedByMe = false;
+  if (account?.authenticated) {
+    const liked = await env.DB.prepare("SELECT post_id FROM post_likes WHERE post_id = ? AND user_id = ? LIMIT 1").bind(row.id, account.user.id).first();
+    likedByMe = Boolean(liked);
+  }
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    excerpt: row.excerpt || "",
+    body: options.includeBody ? row.body || "" : undefined,
+    status: row.status,
+    visibility: row.visibility,
+    category: row.category || "Development",
+    coverUrl: row.cover_url || firstMediaUrl(mediaRows.results, "image") || "assets/media/posts/biopunk-duo.webp",
+    authorName: row.author_name || "Ravene",
+    publishedAt: row.published_at || row.created_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    likeCount: Number(row.like_count || 0),
+    commentCount: Number(row.comment_count || 0),
+    likedByMe,
+    canEdit: Boolean(account?.permissions?.canManagePosts),
+    canModerate: Boolean(account?.permissions?.canModerate),
+    media: (mediaRows.results || []).map((media) => ({
+      id: media.id,
+      type: media.media_type,
+      url: media.url,
+      title: media.title || "",
+      caption: media.caption || "",
+      sortOrder: Number(media.sort_order || 0),
+    })),
+  };
+}
+
+function firstMediaUrl(rows, type) {
+  const item = (rows || []).find((row) => row.media_type === type);
+  return item?.url || "";
+}
+
+async function replacePostMedia(env, postId, media, now) {
+  await env.DB.prepare("DELETE FROM post_media WHERE post_id = ?").bind(postId).run();
+  const normalized = normalizeMediaList(media);
+  if (!normalized.length) return;
+  const statements = normalized.map((item, index) => env.DB.prepare(
+    "INSERT INTO post_media (id, post_id, media_type, url, title, caption, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  ).bind(randomId(), postId, item.type, item.url, item.title || null, item.caption || null, index, now));
+  await env.DB.batch(statements);
+}
+
+function normalizeMediaList(media) {
+  if (!Array.isArray(media)) return [];
+  return media.slice(0, 20).map((item) => {
+    const type = cleanMediaType(item?.type || item?.mediaType);
+    const url = cleanUrl(item?.url, 1000);
+    if (!type || !url) return null;
+    return {
+      type,
+      url,
+      title: cleanLongText(item?.title, 140),
+      caption: cleanLongText(item?.caption, 300),
+    };
+  }).filter(Boolean);
+}
+
+function cleanMediaType(value) {
+  const type = String(value || "").trim().toLowerCase();
+  return ["image", "video", "audio", "link"].includes(type) ? type : "";
+}
+
+function cleanPostStatus(value) {
+  const status = String(value || "published").trim().toLowerCase();
+  return ["draft", "published", "hidden"].includes(status) ? status : "published";
+}
+
+function cleanPostVisibility(value) {
+  const visibility = String(value || "public").trim().toLowerCase();
+  return ["public", "registered", "tier1", "tier2", "tier3", "moderator", "admin"].includes(visibility) ? visibility : "public";
+}
+
+function cleanLongText(value, maxLength) {
+  return String(value || "").trim().replace(/\r\n/g, "\n").replace(/[\t ]+\n/g, "\n").slice(0, maxLength);
+}
+
+
+async function writeModerationLog(env, { actorId = null, targetUserId = null, targetType, targetId, action, reason = null, rawPayload = null }) {
+  try {
+    await env.DB.prepare(
+      "INSERT INTO moderation_logs (id, actor_id, target_user_id, target_type, target_id, action, reason, created_at, raw_payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).bind(
+      randomId(),
+      actorId,
+      targetUserId,
+      targetType,
+      targetId,
+      action,
+      reason,
+      new Date().toISOString(),
+      rawPayload ? JSON.stringify(rawPayload) : null,
+    ).run();
+  } catch (error) {
+    if (!isMissingSchemaError(error, ["moderation_logs"])) throw error;
+  }
 }
 
 function isMissingSchemaError(error, tableNames = []) {

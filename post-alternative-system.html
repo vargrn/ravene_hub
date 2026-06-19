@@ -14,34 +14,36 @@
     <header class="topbar">
       <div class="topbar-inner">
         <a class="brand" href="index.html"><img class="brand-mark" src="assets/media/profile/avatar.webp" alt="" /><span class="brand-name"><strong>Ravene Hub</strong></span></a>
-        <nav class="nav"><a class="is-active" href="index.html">Home</a><a href="membership.html" data-auth-nav hidden>Memberships</a><a href="builds.html">Builds</a><a href="account.html">Account</a></nav>
+        <nav class="nav"><a href="index.html">Home</a><a href="membership.html" data-auth-nav hidden>Memberships</a><a href="builds.html">Builds</a><a class="is-active" href="posts.html">Posts</a><a href="community.html" data-auth-nav hidden>Community</a><a href="account.html">Account</a></nav>
       </div>
     </header>
 
     <main class="main">
       <div class="post-layout" data-post-page data-post-slug="alternative-system">
         <article class="glass post-detail-card">
-          <img class="post-detail-hero" src="assets/media/posts/biopunk-duo.webp" alt="BioPunk post artwork" />
+          <img class="post-detail-hero" data-post-cover src="assets/media/posts/biopunk-duo.webp" alt="BioPunk post artwork" />
           <div class="post-detail-body">
-            <div class="meta"><span>Development</span><span>May 22</span><span>Public post</span></div>
-            <h1>Alternative system for Early Access verification</h1>
+            <div class="meta"><span data-post-category>Development</span><span data-post-date>May 22</span><span data-post-visibility>Public post</span></div>
+            <h1 data-post-title>Alternative system for Early Access verification</h1>
 
             <div class="post-head">
               <div class="author-line">
                 <img src="assets/media/profile/avatar.webp" alt="" />
                 <div>
-                  <strong>BioPunk: Phantasmagoria</strong>
-                  <span>Posted May 22 at 6:01 AM</span>
+                  <strong data-post-author>BioPunk: Phantasmagoria</strong>
+                  <span data-post-author-date>Posted May 22 at 6:01 AM</span>
                 </div>
               </div>
               <div class="post-tools" aria-label="Post actions">
+                <button class="mini-btn" type="button" data-like-post>♡ 0</button>
                 <button class="mini-btn" type="button" data-share-url>Share</button>
                 <a class="mini-btn" href="#comments">Comments <span data-comment-count>0</span></a>
                 <a class="mini-btn" href="posts.html">Archive</a>
+                <a class="mini-btn" href="account.html#admin-posts" data-edit-post-link hidden>Edit</a>
               </div>
             </div>
 
-            <div class="post-content">
+            <div class="post-content" data-post-content>
               <p>I’ve created an alternative system for Early Access verification, project updates, build notes, and other features based on the BioPunk hub and Mini App infrastructure.</p>
               <p>The browser version gives the project a proper large-screen place: posts can breathe, images are not trapped inside a tiny app shell, and materials can be grouped into member access without being buried in chat.</p>
               <p>For now, the priority is simple: make the site the main public surface for the project, keep the Mini App as a companion layer, and move everything important into an interface that feels like it belongs to BioPunk.</p>
@@ -49,7 +51,7 @@
             </div>
 
             <div class="post-actions" id="post-stats">
-              <span class="post-date">♡ 1 reaction</span>
+              <span class="post-date">♡ <span data-like-count>1</span> reactions</span>
               <div class="reaction-line"><span data-comment-summary>0 comments</span><span>Shareable link ready</span></div>
             </div>
 

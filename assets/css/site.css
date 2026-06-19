@@ -1,11 +1,3 @@
-@font-face {
-  font-family: "Exo2";
-  src: url("../fonts/exo2.ttf") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
 :root {
   --bg: #04070d;
   --panel: rgba(12, 16, 24, 0.84);
@@ -48,7 +40,7 @@ body {
     var(--bg);
   background-attachment: fixed;
   color: var(--text);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   overflow-x: hidden;
 }
 
@@ -147,7 +139,7 @@ button {
   display: flex;
   align-items: center;
   gap: 20px;
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   color: var(--text-soft);
   font-size: 12px;
   text-transform: uppercase;
@@ -270,7 +262,7 @@ button {
   margin-top: 10px;
   max-width: 680px;
   color: var(--text-soft);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 14px;
   line-height: 1.65;
 }
@@ -278,7 +270,7 @@ button {
 .profile-title p {
   max-width: 760px;
   color: var(--text-soft);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 14px;
   line-height: 1.65;
 }
@@ -288,7 +280,7 @@ button {
   gap: 8px;
   align-items: center;
   padding-bottom: 10px;
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 11px;
   color: var(--text-muted);
   text-transform: none;
@@ -325,7 +317,7 @@ button {
   padding: 10px 0;
   border: 0;
   color: var(--text-soft);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 12px;
   text-transform: none;
   transition: color 0.18s ease, text-shadow 0.18s ease;
@@ -608,7 +600,7 @@ button {
 
 .post-date {
   color: var(--text-muted);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 12px;
 }
 
@@ -616,7 +608,7 @@ button {
   display: flex;
   gap: 10px;
   color: var(--text-muted);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 12px;
 }
 
@@ -702,7 +694,7 @@ button {
   display: flex;
   align-items: center;
   gap: 11px;
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 13px;
 }
 
@@ -727,7 +719,7 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 12px;
 }
 
@@ -736,7 +728,7 @@ button {
   display: grid;
   gap: 18px;
   color: var(--text);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 16px;
   line-height: 1.72;
 }
@@ -782,7 +774,7 @@ button {
   border: 1px solid var(--line-soft);
   padding: 13px 14px;
   color: var(--text-muted);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 13px;
 }
 
@@ -922,7 +914,7 @@ button {
   flex-wrap: wrap;
   gap: 8px;
   color: var(--text-muted);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 11px;
   text-transform: none;
 }
@@ -945,7 +937,7 @@ button {
 .text {
   position: relative;
   color: var(--text-soft);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 14px;
   line-height: 1.68;
 }
@@ -971,7 +963,7 @@ button {
   border-top: 1px solid var(--line-soft);
   padding-top: 14px;
   color: var(--warning);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 12px;
 }
 
@@ -990,7 +982,7 @@ button {
   color: var(--text);
   text-transform: none;
   font-size: 14px;
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.025),
     0 12px 28px rgba(0, 0, 0, 0.18);
@@ -1002,7 +994,7 @@ button {
 .mini-btn {
   min-height: 34px;
   padding: 8px 10px;
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 11px;
 }
 
@@ -1019,7 +1011,7 @@ button {
 .btn-secondary {
   color: var(--text-soft);
   background: rgba(255, 255, 255, 0.018);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 13px;
 }
 
@@ -1033,7 +1025,7 @@ button {
   gap: 8px;
   margin-top: 14px;
   color: var(--text-soft);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 13px;
   line-height: 1.5;
   list-style: none;
@@ -1062,7 +1054,7 @@ button {
 
 .membership-price span {
   color: var(--text-muted);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 13px;
 }
 
@@ -1324,7 +1316,7 @@ button {
 
 .membership-tiers .tier-price small {
   color: var(--text-soft);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 13px;
   font-weight: 600;
   text-transform: none;
@@ -1461,7 +1453,7 @@ button {
   margin: auto auto 0;
   padding: 22px 22px 22px;
   color: var(--text-muted);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 12px;
   text-transform: none;
   display: flex;
@@ -1708,7 +1700,7 @@ button {
   margin: -2px 0 4px;
   padding-left: 18px;
   color: var(--text-soft);
-  font-family: "Exo2", serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 14px;
   line-height: 1.68;
 }
@@ -1726,4 +1718,195 @@ button {
 .legal-document a:hover,
 .legal-sidebar a:hover {
   border-color: rgba(232, 238, 248, 0.58);
+}
+
+/* Community / production account layer */
+.form-grid-2,
+.form-grid-3 {
+  display: grid;
+  gap: 14px;
+}
+
+.form-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.profile-form label,
+.admin-post-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--text-soft);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  font-size: 13px;
+}
+
+.profile-form textarea,
+.admin-post-form textarea,
+.profile-form select,
+.admin-post-form select,
+.media-field-row select,
+.admin-row select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(232, 238, 248, 0.14);
+  border-radius: 14px;
+  background: rgba(6, 10, 18, 0.74);
+  color: var(--text);
+  padding: 11px 13px;
+  font: inherit;
+  outline: none;
+}
+
+.profile-form textarea,
+.admin-post-form textarea {
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.compact-status {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.media-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.media-field-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.admin-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.admin-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid rgba(232, 238, 248, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.admin-row strong,
+.admin-row span {
+  display: block;
+}
+
+.admin-row span {
+  margin-top: 4px;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.admin-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.mini-btn.danger {
+  border-color: rgba(255, 120, 120, 0.26);
+  color: #ffd2d2;
+}
+
+.mini-btn.is-active {
+  border-color: rgba(255, 220, 220, 0.42);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.post-media-item {
+  margin: 22px 0;
+  display: grid;
+  gap: 8px;
+}
+
+.post-media-item img,
+.post-media-item video {
+  width: 100%;
+  border-radius: 20px;
+  border: 1px solid rgba(232, 238, 248, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.post-media-item audio {
+  width: 100%;
+}
+
+.post-media-item figcaption {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.community-chat {
+  min-height: 620px;
+}
+
+.chat-list {
+  display: grid;
+  gap: 12px;
+  max-height: 520px;
+  overflow: auto;
+  padding-right: 4px;
+  margin: 12px 0 18px;
+}
+
+.chat-message {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.chat-message > img {
+  width: 42px;
+  height: 42px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 1px solid rgba(232, 238, 248, 0.16);
+}
+
+.chat-message-body {
+  padding: 12px 14px;
+  border: 1px solid rgba(232, 238, 248, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.chat-message.is-own .chat-message-body {
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.chat-message-body p {
+  margin: 8px 0 0;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+@media (max-width: 780px) {
+  .form-grid-2,
+  .form-grid-3,
+  .compact-status,
+  .media-field-row,
+  .admin-row {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-row-actions {
+    justify-content: flex-start;
+  }
 }

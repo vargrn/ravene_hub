@@ -1,4 +1,6 @@
 (() => {
+  let currentAccountCache = null;
+
   const api = async (url, options = {}) => {
     const response = await fetch(url, {
       credentials: "same-origin",
@@ -124,6 +126,29 @@
     setText("[data-account-access-status]", accountAccessLabel(account.subscription));
     setText("[data-account-renewal-status]", renewalStatusLabel(renewalStatus, tier));
     setText("[data-account-source]", paymentSourceLabel(paymentSource));
+    setText("[data-account-email]", account.user?.email || "-");
+    setText("[data-account-role]", roleLabel(account.role));
+    setText("[data-account-comments]", String(account.stats?.comments || 0));
+    setText("[data-account-likes]", String(account.stats?.likes || 0));
+    setText("[data-account-chat]", String(account.stats?.chatMessages || 0));
+
+    document.querySelectorAll("[data-admin-only]").forEach((item) => {
+      item.hidden = !account.permissions?.canManagePosts && !account.permissions?.canManageUsers;
+    });
+    document.querySelectorAll("[data-moderator-only]").forEach((item) => {
+      item.hidden = !account.permissions?.canModerate;
+    });
+
+    const profileForm = document.querySelector("[data-profile-form]");
+    if (profileForm && !profileForm.dataset.loaded) {
+      profileForm.dataset.loaded = "1";
+      const fields = profileForm.elements;
+      if (fields.displayName) fields.displayName.value = account.user?.displayName || "";
+      if (fields.avatarUrl) fields.avatarUrl.value = account.user?.avatarUrl || "";
+      if (fields.bio) fields.bio.value = account.profile?.bio || "";
+      if (fields.websiteUrl) fields.websiteUrl.value = account.profile?.websiteUrl || "";
+      if (fields.publicNote) fields.publicNote.value = account.profile?.publicNote || "";
+    }
 
     const cancelAtPeriodEnd = Boolean(account.subscription?.cancelAtPeriodEnd);
     if (renewalNote) renewalNote.hidden = !(showMoonPayNote || cancelAtPeriodEnd);
@@ -192,11 +217,19 @@
     return source;
   };
 
+  const roleLabel = (role) => ({
+    admin: "Admin",
+    moderator: "Moderator",
+    member: "Member",
+    guest: "Guest",
+  }[role] || "Member");
+
   const initAccount = async () => {
     if (!document.querySelector("[data-account-panel], [data-auth-nav]")) return;
 
     try {
-      renderAccount(await api("/api/me"));
+      currentAccountCache = await api("/api/me");
+      renderAccount(currentAccountCache);
     } catch {
       setAuthNavVisible(false);
       setText("[data-account-state]", "Local preview");
@@ -563,12 +596,43 @@
     }).format(new Date(value));
   };
 
+  const postDate = (value) => value ? new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value)) : "-";
+
+  const textToParagraphs = (value) => String(value || "")
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => `<p>${escapeHTML(paragraph).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+
+  const postHref = (post) => post.slug === "alternative-system" ? "post-alternative-system.html" : `post-alternative-system.html?post=${encodeURIComponent(post.slug)}`;
+
+  const mediaMarkup = (media = []) => media.map((item) => {
+    const url = escapeHTML(item.url || "");
+    const caption = item.caption ? `<figcaption>${escapeHTML(item.caption)}</figcaption>` : "";
+    if (item.type === "image") return `<figure class="post-media-item"><img src="${url}" alt="${escapeHTML(item.title || item.caption || "Post image")}" />${caption}</figure>`;
+    if (item.type === "video") return `<figure class="post-media-item"><video controls src="${url}"></video>${caption}</figure>`;
+    if (item.type === "audio") return `<figure class="post-media-item"><audio controls src="${url}"></audio>${caption}</figure>`;
+    return `<p><a class="mini-btn" href="${url}" target="_blank" rel="noopener">${escapeHTML(item.title || item.url)}</a></p>`;
+  }).join("");
+
   const setCommentCount = (count) => {
     document.querySelectorAll("[data-comment-count]").forEach((item) => {
       item.textContent = String(count);
     });
     document.querySelectorAll("[data-comment-summary]").forEach((item) => {
       item.textContent = `${count} ${count === 1 ? "comment" : "comments"}`;
+    });
+  };
+
+  const setLikeState = (post) => {
+    document.querySelectorAll("[data-like-count]").forEach((item) => {
+      item.textContent = String(post?.likeCount || 0);
+    });
+    document.querySelectorAll("[data-like-post]").forEach((button) => {
+      button.classList.toggle("is-active", Boolean(post?.likedByMe));
+      button.textContent = `${post?.likedByMe ? "♥" : "♡"} ${post?.likeCount || 0}`;
+      button.disabled = false;
     });
   };
 
@@ -584,11 +648,12 @@
     }
 
     list.innerHTML = comments.map((comment) => `
-      <article class="comment-item">
+      <article class="comment-item" data-comment-id="${escapeHTML(comment.id)}">
         <img src="${escapeHTML(comment.authorAvatar || "assets/media/profile/avatar.webp")}" alt="" />
         <div class="comment-item-body">
           <div class="comment-item-head"><strong>${escapeHTML(comment.authorName)}</strong><span>${escapeHTML(shortDateTime(comment.createdAt))}</span></div>
           <p class="text">${escapeHTML(comment.body).replace(/\n/g, "<br>")}</p>
+          ${comment.canDelete ? `<button class="mini-btn danger" type="button" data-delete-comment="${escapeHTML(comment.id)}">Delete</button>` : ""}
         </div>
       </article>
     `).join("");
@@ -601,7 +666,9 @@
     const loginLink = document.querySelector("[data-comment-login]");
     if (!page || !form) return;
 
-    const postSlug = page.dataset.postSlug || "alternative-system";
+    const params = new URLSearchParams(window.location.search);
+    const postSlug = params.get("post") || page.dataset.postSlug || "alternative-system";
+    page.dataset.postSlug = postSlug;
 
     const loadComments = async () => {
       try {
@@ -614,7 +681,8 @@
     };
 
     try {
-      const account = await api("/api/me");
+      const account = currentAccountCache || await api("/api/me");
+      currentAccountCache = account;
       const authenticated = Boolean(account.authenticated);
       form.querySelector("textarea").disabled = !authenticated;
       form.querySelector('button[type="submit"]').hidden = !authenticated;
@@ -654,40 +722,438 @@
       }
     });
 
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-delete-comment]");
+      if (!button || !page.contains(button)) return;
+      button.disabled = true;
+      try {
+        const data = await api(`/api/post-comments/${encodeURIComponent(button.dataset.deleteComment)}`, { method: "DELETE" });
+        renderComments(data.comments || []);
+        if (message) message.textContent = "Comment deleted.";
+      } catch (error) {
+        button.disabled = false;
+        if (message) message.textContent = error.message || "Could not delete comment.";
+      }
+    });
+
     await loadComments();
   };
 
-  document.querySelectorAll("[data-share-url]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const url = window.location.href;
-      const title = document.title;
-      const previous = button.textContent;
+  const renderPostCard = (post, featured = false) => `
+    <a class="latest-post ${featured ? "" : "latest-post-compact"}" href="${escapeHTML(postHref(post))}">
+      <img src="${escapeHTML(post.coverUrl || "assets/media/posts/biopunk-duo.webp")}" alt="${escapeHTML(post.title)} artwork" />
+      <div class="latest-post-copy">
+        <div class="meta"><span>${escapeHTML(post.category || "Development")}</span><span>${escapeHTML(postDate(post.publishedAt))}</span><span>${escapeHTML(post.visibility || "public")}</span></div>
+        <h3>${escapeHTML(post.title)}</h3>
+        <p class="text">${escapeHTML(post.excerpt || "")}</p>
+        <div class="reaction-line"><span>♡ ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
+      </div>
+    </a>
+  `;
 
-      const flash = (label) => {
-        button.textContent = label;
-        window.setTimeout(() => {
-          button.textContent = previous;
-        }, 1200);
-      };
+  const renderPostThumb = (post) => `
+    <a class="post-card-thumb" href="${escapeHTML(postHref(post))}">
+      <img src="${escapeHTML(post.coverUrl || "assets/media/posts/biopunk-duo.webp")}" alt="${escapeHTML(post.title)} artwork" />
+      <div class="post-card-body">
+        <div class="meta"><span>${escapeHTML(post.category || "Post")}</span><span>${escapeHTML(post.visibility || "public")}</span></div>
+        <h3>${escapeHTML(post.title)}</h3>
+        <p class="text">${escapeHTML(post.excerpt || "")}</p>
+        <div class="post-date">${escapeHTML(postDate(post.publishedAt))}</div>
+        <div class="reaction-line"><span>♡ ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
+      </div>
+    </a>
+  `;
 
+  const initPostFeeds = async () => {
+    const feedTargets = document.querySelectorAll("[data-post-feed]");
+    if (!feedTargets.length) return;
+
+    try {
+      const data = await api("/api/posts");
+      const posts = data.posts || [];
+      feedTargets.forEach((target) => {
+        const mode = target.dataset.postFeed;
+        const limit = Number(target.dataset.limit || (mode === "latest" ? 1 : 12));
+        const selected = posts.slice(0, limit);
+        if (!selected.length) {
+          target.innerHTML = `<p class="form-note">No posts are available yet.</p>`;
+          return;
+        }
+        target.innerHTML = selected.map((post, index) => mode === "grid" ? renderPostThumb(post) : renderPostCard(post, index === 0 && mode === "latest")).join("");
+      });
+    } catch (error) {
+      feedTargets.forEach((target) => {
+        target.innerHTML = `<p class="form-note">${escapeHTML(error.message || "Posts are not available yet.")}</p>`;
+      });
+    }
+  };
+
+  const initPostDetail = async () => {
+    const page = document.querySelector("[data-post-page]");
+    if (!page) return;
+    const params = new URLSearchParams(window.location.search);
+    const postSlug = params.get("post") || page.dataset.postSlug || "alternative-system";
+    page.dataset.postSlug = postSlug;
+
+    try {
+      const data = await api(`/api/posts/${encodeURIComponent(postSlug)}`);
+      const post = data.post;
+      if (!post) return;
+      document.title = `${post.title} · Ravene Hub`;
+      setText("[data-post-title]", post.title);
+      setText("[data-post-category]", post.category || "Development");
+      setText("[data-post-date]", postDate(post.publishedAt));
+      setText("[data-post-visibility]", post.visibility || "public");
+      setText("[data-post-author]", post.authorName || "Ravene");
+      setText("[data-post-author-date]", `Posted ${postDate(post.publishedAt)}`);
+      const hero = document.querySelector("[data-post-cover]");
+      if (hero) hero.src = post.coverUrl || "assets/media/posts/biopunk-duo.webp";
+      const content = document.querySelector("[data-post-content]");
+      if (content) content.innerHTML = textToParagraphs(post.body) + mediaMarkup((post.media || []).filter((item) => item.url !== post.coverUrl));
+      setCommentCount(post.commentCount || 0);
+      setLikeState(post);
+      const editLink = document.querySelector("[data-edit-post-link]");
+      if (editLink) {
+        editLink.hidden = !post.canEdit;
+        editLink.href = `account.html#admin-posts`;
+      }
+    } catch (error) {
+      const content = document.querySelector("[data-post-content]");
+      const params = new URLSearchParams(window.location.search);
+      if (content && params.get("post")) content.innerHTML = `<p>${escapeHTML(error.message || "Post is not available.")}</p>`;
+    }
+  };
+
+  const initPostLikes = () => {
+    document.querySelectorAll("[data-like-post]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const page = document.querySelector("[data-post-page]");
+        const slug = page?.dataset.postSlug || button.dataset.likePost;
+        if (!slug) return;
+        button.disabled = true;
+        const liked = button.classList.contains("is-active");
+        try {
+          const data = await api(`/api/posts/${encodeURIComponent(slug)}/like`, { method: liked ? "DELETE" : "POST" });
+          setLikeState(data.post);
+        } catch (error) {
+          button.disabled = false;
+          button.textContent = error.message || "Login required";
+          window.setTimeout(() => setLikeState({ likedByMe: liked, likeCount: Number(button.dataset.previousCount || 0) }), 1200);
+        }
+      });
+    });
+  };
+
+  const mediaFromForm = (form) => {
+    const media = [];
+    const types = form.querySelectorAll('[name="mediaType"]');
+    const urls = form.querySelectorAll('[name="mediaUrl"]');
+    const captions = form.querySelectorAll('[name="mediaCaption"]');
+    types.forEach((type, index) => {
+      const url = urls[index]?.value?.trim();
+      if (!url) return;
+      media.push({ type: type.value, url, caption: captions[index]?.value || "" });
+    });
+    return media;
+  };
+
+  const fillPostForm = (form, post = {}) => {
+    form.dataset.editingSlug = post.slug || "";
+    const fields = form.elements;
+    fields.title.value = post.title || "";
+    fields.slug.value = post.slug || "";
+    fields.category.value = post.category || "Development";
+    fields.status.value = post.status || "published";
+    fields.visibility.value = post.visibility || "public";
+    fields.coverUrl.value = post.coverUrl || "";
+    fields.excerpt.value = post.excerpt || "";
+    fields.body.value = post.body || "";
+    const mediaBox = form.querySelector("[data-media-fields]");
+    if (mediaBox) {
+      const media = post.media?.length ? post.media : [{}];
+      mediaBox.innerHTML = media.map((item) => mediaFieldMarkup(item)).join("");
+    }
+  };
+
+  const mediaFieldMarkup = (item = {}) => `
+    <div class="media-field-row">
+      <select name="mediaType"><option value="image" ${item.type === "image" ? "selected" : ""}>Image</option><option value="video" ${item.type === "video" ? "selected" : ""}>Video</option><option value="audio" ${item.type === "audio" ? "selected" : ""}>Audio</option><option value="link" ${item.type === "link" ? "selected" : ""}>Link</option></select>
+      <input name="mediaUrl" type="text" placeholder="assets/media/... or https://..." value="${escapeHTML(item.url || "")}" />
+      <input name="mediaCaption" type="text" placeholder="Caption" value="${escapeHTML(item.caption || "")}" />
+      <button class="mini-btn danger" type="button" data-remove-media>×</button>
+    </div>
+  `;
+
+  const renderAdminPosts = (posts) => {
+    const list = document.querySelector("[data-admin-post-list]");
+    if (!list) return;
+    if (!posts.length) {
+      list.innerHTML = `<p class="form-note">No posts yet.</p>`;
+      return;
+    }
+    list.innerHTML = posts.map((post) => `
+      <article class="admin-row">
+        <div><strong>${escapeHTML(post.title)}</strong><span>${escapeHTML(post.status)} · ${escapeHTML(post.visibility)} · ${escapeHTML(postDate(post.publishedAt))}</span></div>
+        <div class="admin-row-actions">
+          <button class="mini-btn" type="button" data-admin-edit-post="${escapeHTML(post.slug)}">Edit</button>
+          <button class="mini-btn danger" type="button" data-admin-delete-post="${escapeHTML(post.slug)}">Delete</button>
+        </div>
+      </article>
+    `).join("");
+  };
+
+  const renderAdminUsers = (users) => {
+    const list = document.querySelector("[data-admin-user-list]");
+    if (!list) return;
+    if (!users.length) {
+      list.innerHTML = `<p class="form-note">No users yet.</p>`;
+      return;
+    }
+    list.innerHTML = users.map((user) => `
+      <article class="admin-row">
+        <div><strong>${escapeHTML(user.displayName)}</strong><span>${escapeHTML(user.email || "no email")} · Tier ${user.tier || 0} · ${escapeHTML(user.isOwner ? "Owner" : "User")}</span></div>
+        <div class="admin-row-actions">
+          <select data-role-select="${escapeHTML(user.id)}" ${user.isOwner ? "disabled" : ""}>
+            <option value="member" ${user.role === "member" ? "selected" : ""}>Member</option>
+            <option value="moderator" ${user.role === "moderator" ? "selected" : ""}>Moderator</option>
+            <option value="admin" ${user.role === "admin" ? "selected" : ""}>Admin</option>
+          </select>
+          <button class="mini-btn" type="button" data-save-role="${escapeHTML(user.id)}" ${user.isOwner ? "disabled" : ""}>Save</button>
+        </div>
+      </article>
+    `).join("");
+  };
+
+  const initAdminPanel = async () => {
+    const panel = document.querySelector("[data-admin-panel]");
+    if (!panel) return;
+    const message = document.querySelector("[data-admin-message]");
+    const form = document.querySelector("[data-admin-post-form]");
+    const mediaBox = document.querySelector("[data-media-fields]");
+
+    const loadAdmin = async () => {
       try {
-        if (navigator.share) {
-          await navigator.share({ title, url });
-          return;
-        }
+        const [posts, users] = await Promise.all([
+          api("/api/posts?scope=all"),
+          api("/api/admin/users"),
+        ]);
+        renderAdminPosts(posts.posts || []);
+        renderAdminUsers(users.users || []);
+        if (message) message.textContent = "Admin panel loaded.";
+      } catch (error) {
+        panel.hidden = true;
+        if (message) message.textContent = error.message || "Admin access is not available.";
+      }
+    };
 
-        if (navigator.clipboard) {
-          await navigator.clipboard.writeText(url);
-          flash("OK");
-          return;
-        }
+    if (mediaBox && !mediaBox.children.length) mediaBox.innerHTML = mediaFieldMarkup();
 
-        window.prompt("Copy post link", url);
-      } catch {
-        flash("...");
+    document.addEventListener("click", async (event) => {
+      const addMedia = event.target.closest("[data-add-media]");
+      if (addMedia && mediaBox) {
+        mediaBox.insertAdjacentHTML("beforeend", mediaFieldMarkup());
+      }
+      const removeMedia = event.target.closest("[data-remove-media]");
+      if (removeMedia) removeMedia.closest(".media-field-row")?.remove();
+
+      const editButton = event.target.closest("[data-admin-edit-post]");
+      if (editButton && form) {
+        const data = await api(`/api/posts/${encodeURIComponent(editButton.dataset.adminEditPost)}`);
+        fillPostForm(form, data.post);
+        if (message) message.textContent = "Post loaded into editor.";
+      }
+
+      const deleteButton = event.target.closest("[data-admin-delete-post]");
+      if (deleteButton) {
+        deleteButton.disabled = true;
+        try {
+          await api(`/api/posts/${encodeURIComponent(deleteButton.dataset.adminDeletePost)}`, { method: "DELETE" });
+          await loadAdmin();
+          if (message) message.textContent = "Post deleted.";
+        } catch (error) {
+          deleteButton.disabled = false;
+          if (message) message.textContent = error.message || "Could not delete post.";
+        }
+      }
+
+      const roleButton = event.target.closest("[data-save-role]");
+      if (roleButton) {
+        const select = document.querySelector(`[data-role-select="${CSS.escape(roleButton.dataset.saveRole)}"]`);
+        roleButton.disabled = true;
+        try {
+          const users = await api(`/api/admin/users/${encodeURIComponent(roleButton.dataset.saveRole)}`, {
+            method: "PUT",
+            body: JSON.stringify({ role: select?.value || "member" }),
+          });
+          renderAdminUsers(users.users || []);
+          if (message) message.textContent = "Role updated.";
+        } catch (error) {
+          roleButton.disabled = false;
+          if (message) message.textContent = error.message || "Could not update role.";
+        }
+      }
+
+      const clearButton = event.target.closest("[data-clear-post-form]");
+      if (clearButton && form) fillPostForm(form, {});
+    });
+
+    if (form) {
+      fillPostForm(form, {});
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const values = Object.fromEntries(new FormData(form));
+        const payload = {
+          title: values.title,
+          slug: values.slug,
+          category: values.category,
+          status: values.status,
+          visibility: values.visibility,
+          coverUrl: values.coverUrl,
+          excerpt: values.excerpt,
+          body: values.body,
+          media: mediaFromForm(form),
+        };
+        const editingSlug = form.dataset.editingSlug;
+        if (message) message.textContent = editingSlug ? "Saving post..." : "Creating post...";
+        try {
+          const data = await api(editingSlug ? `/api/posts/${encodeURIComponent(editingSlug)}` : "/api/posts", {
+            method: editingSlug ? "PUT" : "POST",
+            body: JSON.stringify(payload),
+          });
+          fillPostForm(form, data.post);
+          await loadAdmin();
+          if (message) message.textContent = editingSlug ? "Post saved." : "Post created.";
+        } catch (error) {
+          if (message) message.textContent = error.message || "Could not save post.";
+        }
+      });
+    }
+
+    await loadAdmin();
+  };
+
+  const initProfileForm = () => {
+    const form = document.querySelector("[data-profile-form]");
+    if (!form) return;
+    const message = document.querySelector("[data-profile-message]");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (message) message.textContent = "Saving profile...";
+      try {
+        const payload = Object.fromEntries(new FormData(form));
+        const data = await api("/api/account/profile", { method: "PUT", body: JSON.stringify(payload) });
+        currentAccountCache = await api("/api/me");
+        renderAccount(currentAccountCache);
+        if (message) message.textContent = "Profile saved.";
+      } catch (error) {
+        if (message) message.textContent = error.message || "Could not save profile.";
       }
     });
-  });
+  };
+
+  const renderChatMessages = (messages) => {
+    const list = document.querySelector("[data-chat-list]");
+    if (!list) return;
+    if (!messages.length) {
+      list.innerHTML = `<p class="form-note">No messages yet.</p>`;
+      return;
+    }
+    list.innerHTML = messages.map((item) => `
+      <article class="chat-message ${item.own ? "is-own" : ""}">
+        <img src="${escapeHTML(item.authorAvatar || "assets/media/profile/avatar.webp")}" alt="" />
+        <div class="chat-message-body">
+          <div class="comment-item-head"><strong>${escapeHTML(item.authorName)}</strong><span>${escapeHTML(shortDateTime(item.createdAt))}</span></div>
+          <p>${escapeHTML(item.body).replace(/\n/g, "<br>")}</p>
+          ${item.canDelete ? `<button class="mini-btn danger" type="button" data-delete-chat="${escapeHTML(item.id)}">Delete</button>` : ""}
+        </div>
+      </article>
+    `).join("");
+    list.scrollTop = list.scrollHeight;
+  };
+
+  const initCommunityChat = async () => {
+    const chat = document.querySelector("[data-community-chat]");
+    if (!chat) return;
+    const form = document.querySelector("[data-chat-form]");
+    const message = document.querySelector("[data-chat-message]");
+
+    const loadChat = async () => {
+      try {
+        const data = await api("/api/community/chat");
+        renderChatMessages(data.messages || []);
+        if (message) message.textContent = "Registered-user chat.";
+      } catch (error) {
+        if (message) message.textContent = error.message || "Chat is available after login.";
+      }
+    };
+
+    if (form) {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const body = String(new FormData(form).get("body") || "").trim();
+        if (!body) return;
+        if (message) message.textContent = "Sending message...";
+        try {
+          const data = await api("/api/community/chat", { method: "POST", body: JSON.stringify({ body }) });
+          form.reset();
+          renderChatMessages(data.messages || []);
+          if (message) message.textContent = "Message sent.";
+        } catch (error) {
+          if (message) message.textContent = error.message || "Could not send message.";
+        }
+      });
+    }
+
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-delete-chat]");
+      if (!button || !chat.contains(button)) return;
+      button.disabled = true;
+      try {
+        const data = await api(`/api/community/chat/${encodeURIComponent(button.dataset.deleteChat)}`, { method: "DELETE" });
+        renderChatMessages(data.messages || []);
+        if (message) message.textContent = "Message deleted.";
+      } catch (error) {
+        button.disabled = false;
+        if (message) message.textContent = error.message || "Could not delete message.";
+      }
+    });
+
+    await loadChat();
+  };
+
+  const initShareButtons = () => {
+    document.querySelectorAll("[data-share-url]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const url = window.location.href;
+        const title = document.title;
+        const previous = button.textContent;
+
+        const flash = (label) => {
+          button.textContent = label;
+          window.setTimeout(() => {
+            button.textContent = previous;
+          }, 1200);
+        };
+
+        try {
+          if (navigator.share) {
+            await navigator.share({ title, url });
+            return;
+          }
+
+          if (navigator.clipboard) {
+            await navigator.clipboard.writeText(url);
+            flash("Copied");
+            return;
+          }
+
+          window.prompt("Copy post link", url);
+        } catch {
+          flash("...");
+        }
+      });
+    });
+  };
 
   initAccount();
   initAuthTabs();
@@ -696,5 +1162,12 @@
   initRenewalControls();
   initBuildLaunch();
   initMoonPaySubscriptions();
+  initProfileForm();
+  initAdminPanel();
+  initPostFeeds();
+  initPostDetail();
+  initPostLikes();
   initPostComments();
+  initCommunityChat();
+  initShareButtons();
 })();

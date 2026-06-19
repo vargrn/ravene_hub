@@ -19,12 +19,7 @@
           <img class="brand-mark" src="assets/media/profile/avatar.webp" alt="" />
           <span class="brand-name"><strong>Ravene Hub</strong></span>
         </a>
-        <nav class="nav" aria-label="Main navigation">
-          <a class="is-active" href="index.html">Home</a>
-          <a href="membership.html" data-auth-nav hidden>Memberships</a>
-          <a href="builds.html">Builds</a>
-          <a href="account.html">Account</a>
-        </nav>
+        <nav class="nav" aria-label="Main navigation"><a class="is-active" href="index.html">Home</a><a href="membership.html" data-auth-nav hidden>Memberships</a><a href="builds.html">Builds</a><a href="posts.html">Posts</a><a href="community.html" data-auth-nav hidden>Community</a><a href="account.html">Account</a></nav>
       </div>
     </header>
 
@@ -45,15 +40,17 @@
             <div class="section-line">
               <h2>Latest post</h2>
             </div>
-            <a class="latest-post latest-post-compact" href="post-alternative-system.html">
-              <img src="assets/media/posts/biopunk-duo.webp" alt="BioPunk latest post artwork" />
-              <div class="latest-post-copy">
-                <div class="meta"><span>Development</span><span>May 22</span></div>
-                <h3>Alternative system for Early Access verification</h3>
-                <p class="text">Project updates, build notes, and access features are moving into the browser hub and Mini App infrastructure.</p>
-                <div class="reaction-line"><span>♡ 1</span><span>Comment</span></div>
-              </div>
-            </a>
+            <div data-post-feed="latest" data-limit="1">
+              <a class="latest-post latest-post-compact" href="post-alternative-system.html">
+                <img src="assets/media/posts/biopunk-duo.webp" alt="BioPunk latest post artwork" />
+                <div class="latest-post-copy">
+                  <div class="meta"><span>Development</span><span>May 22</span></div>
+                  <h3>Alternative system for Early Access verification</h3>
+                  <p class="text">Project updates, build notes, and access features are moving into the browser hub and Mini App infrastructure.</p>
+                  <div class="reaction-line"><span>♡ 1</span><span>Comment</span></div>
+                </div>
+              </a>
+            </div>
           </article>
 
           <section class="home-card-grid" aria-label="Hub sections">
@@ -78,33 +75,9 @@
             <div class="section-line">
               <h2>All posts</h2>
             </div>
-            <a class="latest-post latest-post-compact" href="post-alternative-system.html">
-              <img src="assets/media/posts/biopunk-duo.webp" alt="BioPunk latest post artwork" />
-              <div class="latest-post-copy">
-                <div class="meta"><span>Development</span><span>May 22</span></div>
-                <h3>Alternative system for Early Access verification</h3>
-                <p class="text">Project updates, build notes, and access features are moving into the browser hub and Mini App infrastructure.</p>
-                <div class="reaction-line"><span>♡ 1</span><span>Comment</span></div>
-              </div>
-            </a>
-            <a class="latest-post latest-post-compact" href="post-alternative-system.html">
-              <img src="assets/media/posts/biopunk-duo.webp" alt="BioPunk latest post artwork" />
-              <div class="latest-post-copy">
-                <div class="meta"><span>Development</span><span>May 22</span></div>
-                <h3>Alternative system for Early Access verification</h3>
-                <p class="text">Project updates, build notes, and access features are moving into the browser hub and Mini App infrastructure.</p>
-                <div class="reaction-line"><span>♡ 1</span><span>Comment</span></div>
-              </div>
-            </a>
-            <a class="latest-post latest-post-compact" href="post-alternative-system.html">
-              <img src="assets/media/posts/biopunk-duo.webp" alt="BioPunk latest post artwork" />
-              <div class="latest-post-copy">
-                <div class="meta"><span>Development</span><span>May 22</span></div>
-                <h3>Alternative system for Early Access verification</h3>
-                <p class="text">Project updates, build notes, and access features are moving into the browser hub and Mini App infrastructure.</p>
-                <div class="reaction-line"><span>♡ 1</span><span>Comment</span></div>
-              </div>
-            </a>
+            <div data-post-feed="list" data-limit="6">
+              <p class="form-note">Loading posts...</p>
+            </div>
           </article>
         </section>
 
