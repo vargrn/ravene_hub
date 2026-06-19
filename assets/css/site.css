@@ -2718,3 +2718,14 @@ background-size: cover;
   z-index: 1;
   text-shadow: 0 2px 18px rgba(0, 0, 0, 0.72);
 }
+
+
+/* Home cards: title only, lifted upward */
+.home-card-grid .home-link-card {
+  align-content: start;
+  padding-top: 28px;
+}
+
+.home-card-grid .home-link-card h3 {
+  margin-top: 0;
+}
