@@ -437,15 +437,55 @@ button {
   gap: 14px;
 }
 
+
 .home-link-card {
+  position: relative;
+  overflow: hidden;
   display: grid;
+  align-content: end;
   gap: 10px;
   min-height: 176px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  isolation: isolate;
   transition:
     border-color 0.18s ease,
     background 0.18s ease,
     box-shadow 0.18s ease,
     transform 0.18s ease;
+}
+
+.home-link-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    linear-gradient(180deg, rgba(2, 6, 15, 0.14) 0%, rgba(2, 6, 15, 0.46) 42%, rgba(2, 6, 15, 0.88) 100%),
+    linear-gradient(135deg, rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0.08));
+}
+
+.home-link-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.home-link-card h3,
+.home-link-card .text {
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.58);
+}
+
+.home-link-card-builds {
+  background-image: url("../media/home-cards/build-library-bg.png");
+}
+
+.home-link-card-patreon {
+  background-image: url("../media/home-cards/patreon-bg.png");
+}
+
+.home-link-card-miniapp {
+  background-image: url("../media/home-cards/miniapp-bg.png");
 }
 
 .home-link-card:hover {
