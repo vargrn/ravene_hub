@@ -39,6 +39,12 @@
     });
   };
 
+  const setGuestOnlyVisible = (visible) => {
+    document.querySelectorAll("[data-guest-only]").forEach((item) => {
+      item.hidden = !visible;
+    });
+  };
+
   const loadScriptOnce = (src, id, globalReady = () => true) => new Promise((resolve, reject) => {
     const finish = () => {
       if (globalReady()) {
@@ -74,6 +80,7 @@
     const cancelRenewalButton = document.querySelector("[data-cancel-renewal-button]");
     const resumeRenewalButton = document.querySelector("[data-resume-renewal-button]");
     setAuthNavVisible(Boolean(account.authenticated));
+    setGuestOnlyVisible(!account.authenticated);
     if (!panel) return;
 
     panel.classList.toggle("is-connected", Boolean(account.authenticated));
@@ -81,6 +88,7 @@
 
     if (account.setupRequired) {
       setAuthOnlyVisible(false);
+      setGuestOnlyVisible(true);
       setText("[data-account-state]", "Setup required");
       setText("[data-account-summary]", "The account database is not connected yet. Hosting needs the DB binding and migration.");
       if (renewalNote) renewalNote.hidden = true;
@@ -91,6 +99,7 @@
 
     if (!account.authenticated) {
       setAuthOnlyVisible(false);
+      setGuestOnlyVisible(true);
       setText("[data-account-state]", "Not connected");
       setText("[data-account-summary]", "Log in to an existing account or create a new browser account.");
       setText("[data-account-name]", "Not connected");
@@ -110,6 +119,7 @@
     }
 
     setAuthOnlyVisible(true);
+    setGuestOnlyVisible(false);
     const tier = Number(account.subscription?.tier || 0);
     const renewalStatus = account.subscription?.renewalStatus || account.subscription?.status || "none";
     const paymentSource = account.subscription?.paymentSource || account.subscription?.source || null;
@@ -232,8 +242,13 @@
       renderAccount(currentAccountCache);
     } catch {
       setAuthNavVisible(false);
+      setAuthOnlyVisible(false);
+      setGuestOnlyVisible(true);
       setText("[data-account-state]", "Local preview");
       setText("[data-account-summary]", "Open the hosted Worker build to check account status.");
+      document.querySelectorAll("[data-auth-gate], [data-auth-trigger]").forEach((item) => {
+        item.hidden = false;
+      });
     }
   };
 
@@ -605,7 +620,7 @@
     .map((paragraph) => `<p>${escapeHTML(paragraph).replace(/\n/g, "<br>")}</p>`)
     .join("");
 
-  const postHref = (post) => post.slug === "alternative-system" ? "post-alternative-system.html" : `post-alternative-system.html?post=${encodeURIComponent(post.slug)}`;
+  const postHref = (post) => post.staticHref || (post.slug === "alternative-system" ? "post-alternative-system.html" : `post-alternative-system.html?post=${encodeURIComponent(post.slug || "")}`);
 
   const mediaMarkup = (media = []) => media.map((item) => {
     const url = escapeHTML(item.url || "");
@@ -739,6 +754,27 @@
     await loadComments();
   };
 
+  const fallbackPosts = [
+    {
+      title: "Alternative system for Early Access verification",
+      category: "Development",
+      publishedAt: "2026-05-22",
+      visibility: "public",
+      coverUrl: "assets/media/posts/biopunk-duo.webp",
+      excerpt: "Project updates, build notes, and access features are moving into the browser hub and Mini App infrastructure.",
+      slug: "alternative-system",
+      likeCount: 1,
+      commentCount: 0,
+      staticHref: "post-alternative-system.html",
+    },
+  ];
+
+  const fallbackPinnedPosts = [
+    { title: "BioPunk hub", category: "Pinned", excerpt: "This site is the browser-side surface for posts, builds, account access, and future private content.", staticHref: "account.html" },
+    { title: "Tier check", category: "Pinned", excerpt: "Launching an EA build uses the current browser account and checks whether Tier 2 access is active.", staticHref: "builds.html" },
+    { title: "Telegram bridge", category: "Pinned", excerpt: "The Mini App remains a companion entrance for synchronized access and community features.", staticHref: "https://biopunk-mini-app.pages.dev/" },
+  ];
+
   const renderPostCard = (post, featured = false) => `
     <a class="latest-post ${featured ? "" : "latest-post-compact"}" href="${escapeHTML(postHref(post))}">
       <img src="${escapeHTML(post.coverUrl || "assets/media/posts/biopunk-duo.webp")}" alt="${escapeHTML(post.title)} artwork" />
@@ -790,17 +826,16 @@
       return map;
     }, {});
 
+    const fallbackForMode = (mode) => (mode === "pinned" ? fallbackPinnedPosts : fallbackPosts);
+
     const loadGroup = async (key, targets) => {
       const data = await api(key === "pinned" ? "/api/posts?pinned=1" : "/api/posts");
       const posts = data.posts || [];
       targets.forEach((target) => {
         const mode = target.dataset.postFeed;
         const limit = Number(target.dataset.limit || (mode === "latest" ? 1 : 12));
-        const selected = posts.slice(0, limit);
-        if (!selected.length) {
-          target.innerHTML = `<p class="form-note">No posts are available yet.</p>`;
-          return;
-        }
+        const source = posts.length ? posts : fallbackForMode(mode);
+        const selected = source.slice(0, limit);
         target.innerHTML = renderFeedPosts(mode, selected);
       });
     };
@@ -808,9 +843,11 @@
     await Promise.all(Object.entries(grouped).map(async ([key, targets]) => {
       try {
         await loadGroup(key, targets);
-      } catch (error) {
+      } catch {
         targets.forEach((target) => {
-          target.innerHTML = `<p class="form-note">${escapeHTML(error.message || "Posts are not available yet.")}</p>`;
+          const mode = target.dataset.postFeed;
+          const limit = Number(target.dataset.limit || (mode === "latest" ? 1 : 12));
+          target.innerHTML = renderFeedPosts(mode, fallbackForMode(mode).slice(0, limit));
         });
       }
     }));

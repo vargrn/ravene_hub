@@ -65,9 +65,9 @@
           </article>
 
           <details class="glass card collapsible-card" data-auth-only hidden>
-            <summary>
-              <span><span class="meta"><span>Profile</span><span>Public account card</span></span><strong>Profile information</strong></span>
-              <span class="collapse-hint">Open settings</span>
+            <summary aria-label="Open profile settings">
+              <span class="collapsible-title"><span class="meta"><span>Profile</span><span>Public account card</span></span><strong>Profile information</strong></span>
+              <span class="collapse-hint" aria-hidden="true"><span class="collapse-hint-text">Open settings</span><span class="collapse-arrow">▾</span></span>
             </summary>
             <form class="connect-form profile-form" data-profile-form>
               <div class="form-grid-2">
@@ -127,6 +127,26 @@
           </article>
         </section>
         <aside class="sidebar account-chat-sidebar">
+          <section class="glass card" data-guest-only>
+            <div class="meta"><span>Identity</span></div>
+            <h3>Account registration</h3>
+            <p class="text">The account will provide access to more private content in the Hub.</p>
+          </section>
+          <section class="glass card" data-guest-only>
+            <div class="meta"><span>Fallback</span></div>
+            <h3>Telegram bridge</h3>
+            <p class="text">Ability to link a Telegram account to the user account to synchronize access with the BioPunk Mini App.</p>
+          </section>
+          <section class="glass card" data-guest-only>
+            <div class="meta"><span>Security</span></div>
+            <h3>Early Access</h3>
+            <p class="text">The account token is used to verify access to the game’s Early Access content.</p>
+          </section>
+          <section class="glass card" data-guest-only>
+            <div class="meta"><span>Memberships</span></div>
+            <h3>Support</h3>
+            <p class="text">Ability to send the author coffee and cat food.</p>
+          </section>
           <section class="glass card community-chat" data-auth-only data-community-chat hidden>
             <div class="section-line"><h2>General chat</h2><span class="form-note" data-chat-message>Login is required for chat.</span></div>
             <div class="chat-list" data-chat-list><p class="form-note">Loading chat...</p></div>
