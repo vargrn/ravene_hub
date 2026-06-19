@@ -863,48 +863,32 @@
     </div>
   `;
 
-  const postActionsMarkup = (post, label = "Open post") => `
-    <div class="post-action-row">
-      <div class="reaction-line"><span>♡ ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
-      <div class="post-inline-actions">
-        <button class="post-expand-button" type="button" data-expand-post="${escapeHTML(post.slug || "")}">Expand</button>
-        <a class="post-open-link" href="${escapeHTML(postHref(post))}">${escapeHTML(label)}</a>
+  const renderPostCard = (post) => `
+    <a class="post-feed-row" href="${escapeHTML(postHref(post))}">
+      <div class="post-feed-cover">
+        <img src="${escapeHTML(post.coverUrl || "assets/media/posts/biopunk-duo.webp")}" alt="${escapeHTML(post.title)} artwork" />
       </div>
-    </div>
-  `;
-
-  const renderPostCard = (post, featured = false) => {
-    const cardClass = featured ? "post-feature-card" : "post-feed-row";
-    const coverClass = featured ? "post-feature-cover" : "post-feed-cover";
-    const bodyClass = featured ? "post-feature-body" : "post-feed-body";
-    const actionLabel = featured ? "Read post" : "Open post";
-    return `
-      <article class="${cardClass}" data-post-card data-post-slug="${escapeHTML(post.slug || "")}">
-        <div class="${coverClass}">
-          <img src="${escapeHTML(post.coverUrl || "assets/media/posts/biopunk-duo.webp")}" alt="${escapeHTML(post.title)} artwork" />
-        </div>
-        <div class="${bodyClass}">
-          ${postMetaMarkup(post)}
-          <h3>${escapeHTML(post.title)}</h3>
-          <p class="text">${escapeHTML(post.excerpt || "")}</p>
-          ${postActionsMarkup(post, actionLabel)}
-          <div class="post-inline-body" data-inline-post-body hidden></div>
-        </div>
-      </article>
-    `;
-  };
-
-  const renderPostThumb = (post) => `
-    <article class="post-card-thumb" data-post-card data-post-slug="${escapeHTML(post.slug || "")}">
-      <img src="${escapeHTML(post.coverUrl || "assets/media/posts/biopunk-duo.webp")}" alt="${escapeHTML(post.title)} artwork" />
-      <div class="post-card-body">
+      <div class="post-feed-body">
         ${postMetaMarkup(post)}
         <h3>${escapeHTML(post.title)}</h3>
         <p class="text">${escapeHTML(post.excerpt || "")}</p>
-        ${postActionsMarkup(post, "Open post")}
-        <div class="post-inline-body" data-inline-post-body hidden></div>
+        <div class="reaction-line"><span>♡ ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
       </div>
-    </article>
+    </a>
+  `;
+
+  const renderPostThumb = (post) => `
+    <a class="post-feed-row" href="${escapeHTML(postHref(post))}">
+      <div class="post-feed-cover">
+        <img src="${escapeHTML(post.coverUrl || "assets/media/posts/biopunk-duo.webp")}" alt="${escapeHTML(post.title)} artwork" />
+      </div>
+      <div class="post-feed-body">
+        ${postMetaMarkup(post)}
+        <h3>${escapeHTML(post.title)}</h3>
+        <p class="text">${escapeHTML(post.excerpt || "")}</p>
+        <div class="reaction-line"><span>♡ ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
+      </div>
+    </a>
   `;
 
   const renderPinnedPost = (post) => `
@@ -918,8 +902,7 @@
   const renderFeedPosts = (mode, selected) => {
     if (mode === "grid") return selected.map((post) => renderPostThumb(post)).join("");
     if (mode === "pinned") return `<div class="pinned-post-list">${selected.map((post) => renderPinnedPost(post)).join("")}</div>`;
-    if (mode === "latest") return selected.slice(0, 1).map((post) => renderPostCard(post, true)).join("");
-    return selected.map((post) => renderPostCard(post, false)).join("");
+    return selected.map((post) => renderPostCard(post)).join("");
   };
 
   const initPostFeeds = async () => {
@@ -941,7 +924,7 @@
       const posts = data.posts || [];
       targets.forEach((target) => {
         const mode = target.dataset.postFeed;
-        const limit = Number(target.dataset.limit || (mode === "latest" ? 1 : 12));
+        const limit = Number(target.dataset.limit || 12);
         const offset = Number(target.dataset.offset || 0);
         const source = posts.length ? posts : fallbackForMode(mode);
         const selected = source.slice(offset, offset + limit);
@@ -955,52 +938,14 @@
       } catch {
         targets.forEach((target) => {
           const mode = target.dataset.postFeed;
-          const limit = Number(target.dataset.limit || (mode === "latest" ? 1 : 12));
+          const limit = Number(target.dataset.limit || 12);
           const offset = Number(target.dataset.offset || 0);
-          const source = fallbackForMode(mode);
+          const source = fallbackForMode(target.dataset.postFeed);
           const selected = source.slice(offset, offset + limit);
-          target.innerHTML = selected.length ? renderFeedPosts(mode, selected) : "";
+          target.innerHTML = selected.length ? renderFeedPosts(target.dataset.postFeed, selected) : "";
         });
       }
     }));
-  };
-
-  const initInlinePostExpand = () => {
-    document.addEventListener("click", async (event) => {
-      const button = event.target.closest("[data-expand-post]");
-      if (!button) return;
-
-      const card = button.closest("[data-post-card]");
-      const body = card?.querySelector("[data-inline-post-body]");
-      const slug = button.dataset.expandPost || card?.dataset.postSlug;
-      if (!card || !body || !slug) return;
-
-      if (!body.hidden) {
-        body.hidden = true;
-        button.textContent = "Expand";
-        return;
-      }
-
-      button.disabled = true;
-      const previous = button.textContent;
-      button.textContent = "Loading...";
-
-      try {
-        const data = await api(`/api/posts/${encodeURIComponent(slug)}`);
-        const post = data.post;
-        const content = post?.body || post?.excerpt || "";
-        body.innerHTML = content ? textToParagraphs(content) + mediaMarkup((post.media || []).filter((item) => item.url !== post.coverUrl)) : "<p>No post content yet.</p>";
-        body.hidden = false;
-        button.textContent = "Collapse";
-      } catch (error) {
-        body.innerHTML = `<p>${escapeHTML(error.message || "Post is not available.")}</p>`;
-        body.hidden = false;
-        button.textContent = "Collapse";
-      } finally {
-        button.disabled = false;
-        if (button.textContent === "Loading...") button.textContent = previous;
-      }
-    });
   };
 
   const initPostDetail = async () => {
@@ -1397,7 +1342,6 @@
   initProfileForm();
   initAdminPanel();
   initPostFeeds();
-  initInlinePostExpand();
   initPostDetail();
   initPostLikes();
   initPostComments();
