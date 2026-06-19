@@ -1661,3 +1661,69 @@ button {
     scroll-behavior: auto !important;
   }
 }
+
+
+.footer a {
+  color: var(--text-soft);
+  border-bottom: 1px solid transparent;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+
+.footer a:hover {
+  color: var(--text);
+  border-color: rgba(232, 238, 248, 0.38);
+}
+
+.legal-layout {
+  grid-template-columns: minmax(0, 1fr) 320px;
+  margin-bottom: 34px;
+}
+
+.legal-title {
+  margin-bottom: 18px;
+}
+
+.legal-document {
+  display: grid;
+  gap: 14px;
+  padding: 26px;
+}
+
+.legal-document h2 {
+  margin-top: 10px;
+  font-size: 24px;
+  line-height: 1.1;
+  font-weight: 400;
+  text-transform: none;
+}
+
+.legal-document h2:first-of-type {
+  margin-top: 0;
+}
+
+.legal-document ul {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  margin: -2px 0 4px;
+  padding-left: 18px;
+  color: var(--text-soft);
+  font-family: "Exo2", serif;
+  font-size: 14px;
+  line-height: 1.68;
+}
+
+.legal-document li {
+  padding-left: 2px;
+}
+
+.legal-document a,
+.legal-sidebar a {
+  color: var(--text);
+  border-bottom: 1px solid rgba(232, 238, 248, 0.24);
+}
+
+.legal-document a:hover,
+.legal-sidebar a:hover {
+  border-color: rgba(232, 238, 248, 0.58);
+}
