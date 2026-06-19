@@ -2974,3 +2974,90 @@ background-size: cover;
     font-size: 25px;
   }
 }
+
+
+/* Home post stream: no section labels, no wrapper cards, every post is its own card. */
+.home-post-stream {
+  display: grid;
+  gap: 18px;
+}
+
+.home-layout .stack > .home-post-stream:first-child {
+  margin-top: 0;
+}
+
+.post-feature-card,
+.post-feed-row {
+  border: 1px solid rgba(232, 238, 248, 0.16);
+}
+
+.post-feature-card {
+  margin: 0;
+}
+
+.post-feed-row {
+  margin: 0;
+}
+
+.post-inline-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.post-expand-button {
+  min-width: 104px;
+  padding: 9px 12px;
+  border: 1px solid rgba(232, 238, 248, 0.16);
+  color: var(--text);
+  background: rgba(255,255,255,0.035);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.post-expand-button:hover {
+  border-color: rgba(232, 238, 248, 0.32);
+  background: rgba(255,255,255,0.075);
+}
+
+.post-expand-button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.post-open-link {
+  text-decoration: none;
+}
+
+.post-inline-body {
+  margin-top: 12px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(232, 238, 248, 0.10);
+  color: var(--text-soft);
+  line-height: 1.62;
+}
+
+.post-inline-body p {
+  margin: 0 0 12px;
+}
+
+.post-inline-body p:last-child {
+  margin-bottom: 0;
+}
+
+.post-feature-card .post-inline-body {
+  max-width: 860px;
+}
+
+@media (max-width: 760px) {
+  .post-inline-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .post-expand-button {
+    width: 100%;
+  }
+}

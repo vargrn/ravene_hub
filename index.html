@@ -38,12 +38,7 @@
 
       <section class="layout home-layout">
         <section class="stack">
-          <article class="glass card">
-            <div class="section-line">
-              <h2>Latest post</h2>
-            </div>
-            <div data-post-feed="latest" data-limit="1"><p class="form-note">Loading latest post...</p></div>
-          </article>
+          <div class="home-post-stream" data-post-feed="latest" data-limit="1"><p class="form-note">Loading latest post...</p></div>
 
           <section class="home-card-grid" aria-label="Hub sections">
             <a class="glass card home-link-card" href="builds.html">
@@ -63,12 +58,7 @@
             </a>
           </section>
 
-          <article class="glass card" id="posts">
-            <div class="section-line">
-              <h2>All posts</h2>
-            </div>
-            <div class="post-list" data-post-feed="list" data-limit="80"><p class="form-note">Loading posts...</p></div>
-          </article>
+          <div class="home-post-stream post-list" id="posts" data-post-feed="list" data-limit="80" data-offset="1"><p class="form-note">Loading posts...</p></div>
         </section>
 
         <aside class="sidebar">
