@@ -148,7 +148,6 @@
       document.querySelectorAll("[data-auth-gate], [data-auth-trigger]").forEach((item) => {
         item.hidden = false;
       });
-      closeAuthForms();
       return;
     }
 

@@ -1,5 +1,6 @@
 const SESSION_COOKIE = "rh_session";
 const SESSION_DAYS = 30;
+const SESSION_MAX_AGE = SESSION_DAYS * 24 * 60 * 60;
 const BUILD_SESSION_MINUTES = 15;
 const PASSWORD_ITERATIONS = 60000;
 const PASSWORD_ALGORITHM = "pbkdf2-sha256";
@@ -862,7 +863,7 @@ async function createSessionResponse(request, env, user) {
     { ok: true, userId: user.id },
     {
       headers: {
-        "set-cookie": `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Expires=${expiresAt.toUTCString()}`,
+        "set-cookie": `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_MAX_AGE}; Expires=${expiresAt.toUTCString()}`,
       },
     },
   );
@@ -1963,7 +1964,7 @@ async function activeRenewalCancellation(env, userId, accessRow) {
        LIMIT 1`,
     ).bind(userId, accessRow.id, Number(accessRow.tier || 0)).first();
   } catch (error) {
-    if (isMissingSchemaError(error, ["subscription_controls"])) return null;
+    if (isMissingSchemaError(error)) return null;
     throw error;
   }
 }
@@ -2083,7 +2084,7 @@ async function latestMoonPaySubscription(env, userId, tier = null) {
       ? statement.bind(userId, tier).first()
       : statement.bind(userId).first());
   } catch (error) {
-    if (isMissingSchemaError(error, ["moonpay_subscriptions"])) return null;
+    if (isMissingSchemaError(error)) return null;
     throw error;
   }
 }
@@ -2133,7 +2134,7 @@ async function accountRole(env, user) {
     const row = await env.DB.prepare("SELECT role FROM user_roles WHERE user_id = ? LIMIT 1").bind(user.id).first();
     return cleanRole(row?.role) || "member";
   } catch (error) {
-    if (isMissingSchemaError(error, ["user_roles"])) return "member";
+    if (isMissingSchemaError(error)) return "member";
     throw error;
   }
 }
@@ -2182,7 +2183,7 @@ async function accountProfile(env, userId) {
       updatedAt: row?.updated_at || null,
     };
   } catch (error) {
-    if (isMissingSchemaError(error, ["user_profiles"])) return emptyProfile();
+    if (isMissingSchemaError(error)) return emptyProfile();
     throw error;
   }
 }
@@ -2204,7 +2205,7 @@ async function accountStats(env, userId) {
       chatMessages: Number(chat?.count || 0),
     };
   } catch (error) {
-    if (isMissingSchemaError(error, ["post_likes", "community_chat_messages"])) return emptyAccountStats();
+    if (isMissingSchemaError(error)) return emptyAccountStats();
     throw error;
   }
 }
