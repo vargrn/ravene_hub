@@ -1,5 +1,38 @@
 (() => {
   let currentAccountCache = null;
+  let accountRequestVersion = 0;
+  let authBusy = false;
+  let logoutBusy = false;
+
+  const guestAccount = () => ({
+    authenticated: false,
+    setupRequired: false,
+    user: null,
+    subscription: {},
+    identities: [],
+    role: "guest",
+    permissions: {},
+    profile: {},
+    stats: {},
+  });
+
+  const resetPrivilegedPanels = () => {
+    document.querySelectorAll("[data-admin-only], [data-moderator-only]").forEach((item) => {
+      item.hidden = true;
+    });
+    const logout = document.querySelector("[data-logout-button]");
+    if (logout) {
+      logout.hidden = true;
+      logout.disabled = false;
+      logout.textContent = "Log out";
+    }
+  };
+
+  const setFormBusy = (form, busy) => {
+    form.querySelectorAll("button, input, textarea, select").forEach((item) => {
+      item.disabled = busy;
+    });
+  };
 
   const api = async (url, options = {}) => {
     const response = await fetch(url, {
@@ -88,6 +121,7 @@
     if (account.setupRequired) {
       setAuthOnlyVisible(false);
       setGuestOnlyVisible(true);
+      resetPrivilegedPanels();
       setText("[data-account-state]", "Setup required");
       setText("[data-account-summary]", "Account service is temporarily unavailable. Please try again after the current site update is applied.");
       if (renewalNote) renewalNote.hidden = true;
@@ -99,6 +133,7 @@
     if (!account.authenticated) {
       setAuthOnlyVisible(false);
       setGuestOnlyVisible(true);
+      resetPrivilegedPanels();
       setText("[data-account-state]", "Not connected");
       setText("[data-account-summary]", "Log in to an existing account or create a new browser account.");
       setText("[data-account-name]", "Not connected");
@@ -233,21 +268,40 @@
     guest: "Guest",
   }[role] || "Member");
 
+  const refreshAccount = async ({ render = true } = {}) => {
+    const version = ++accountRequestVersion;
+    const account = await api("/api/me");
+    if (version !== accountRequestVersion) return null;
+    currentAccountCache = account;
+    if (render) renderAccount(account);
+    return account;
+  };
+
+  const renderAccountError = (version) => {
+    if (version !== accountRequestVersion) return;
+    currentAccountCache = guestAccount();
+    setAuthNavVisible(false);
+    setAuthOnlyVisible(false);
+    setGuestOnlyVisible(true);
+    resetPrivilegedPanels();
+    setText("[data-account-state]", "Local preview");
+    setText("[data-account-summary]", "Open the hosted Worker build to check account status.");
+    document.querySelectorAll("[data-auth-gate], [data-auth-trigger]").forEach((item) => {
+      item.hidden = false;
+    });
+  };
+
   const initAccount = async () => {
     if (!document.querySelector("[data-account-panel]")) return;
 
+    const version = ++accountRequestVersion;
     try {
-      currentAccountCache = await api("/api/me");
-      renderAccount(currentAccountCache);
+      const account = await api("/api/me");
+      if (version !== accountRequestVersion) return;
+      currentAccountCache = account;
+      renderAccount(account);
     } catch {
-      setAuthNavVisible(false);
-      setAuthOnlyVisible(false);
-      setGuestOnlyVisible(true);
-      setText("[data-account-state]", "Local preview");
-      setText("[data-account-summary]", "Open the hosted Worker build to check account status.");
-      document.querySelectorAll("[data-auth-gate], [data-auth-trigger]").forEach((item) => {
-        item.hidden = false;
-      });
+      renderAccountError(version);
     }
   };
 
@@ -288,6 +342,9 @@
         const message = document.querySelector(`[data-auth-message="${mode}"]`);
         const body = Object.fromEntries(new FormData(form));
 
+        if (authBusy) return;
+        authBusy = true;
+        setFormBusy(form, true);
         if (message) message.textContent = mode === "register" ? "Creating account..." : "Logging in...";
 
         try {
@@ -296,10 +353,13 @@
             body: JSON.stringify(body),
           });
           if (message) message.textContent = mode === "register" ? "Account created." : "Logged in.";
-          renderAccount(await api("/api/me"));
+          await refreshAccount();
           form.reset();
         } catch (error) {
           if (message) message.textContent = error.message || "Could not continue.";
+        } finally {
+          authBusy = false;
+          setFormBusy(form, false);
         }
       });
     });
@@ -310,8 +370,24 @@
     if (!button) return;
 
     button.addEventListener("click", async () => {
-      await api("/api/logout", { method: "POST", body: "{}" }).catch(() => null);
-      window.location.reload();
+      if (logoutBusy) return;
+      logoutBusy = true;
+      const previous = button.textContent;
+      button.disabled = true;
+      button.textContent = "Logging out...";
+
+      try {
+        accountRequestVersion += 1;
+        await api("/api/logout", { method: "POST", body: "{}" }).catch(() => null);
+        currentAccountCache = guestAccount();
+        renderAccount(currentAccountCache);
+        const profileForm = document.querySelector("[data-profile-form]");
+        if (profileForm) delete profileForm.dataset.loaded;
+      } finally {
+        logoutBusy = false;
+        button.disabled = false;
+        button.textContent = previous;
+      }
     });
   };
 

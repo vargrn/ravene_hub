@@ -93,7 +93,7 @@ async function handleApi(request, env, url) {
     }
 
     if (url.pathname === "/api/logout" && request.method === "POST") {
-      return clearSession();
+      return logout(request, env);
     }
 
     if (url.pathname === "/api/moonpay/config" && request.method === "GET") {
@@ -155,7 +155,7 @@ async function currentAccount(request, env) {
     };
   }
 
-  const workspaceUser = await workspaceIdentity(request, env);
+  const workspaceUser = env.ENABLE_WORKSPACE_AUTH === "1" ? await workspaceIdentity(request, env) : null;
   const sessionUser = workspaceUser || await sessionIdentity(request, env);
 
   if (!sessionUser) {
@@ -868,12 +868,20 @@ async function createSessionResponse(request, env, user) {
   );
 }
 
-function clearSession() {
+async function logout(request, env) {
+  if (env.DB) {
+    const token = getCookie(request, SESSION_COOKIE);
+    if (token) {
+      const tokenHash = await sha256(token);
+      await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(tokenHash).run().catch(() => null);
+    }
+  }
+
   return json(
     { ok: true },
     {
       headers: {
-        "set-cookie": `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
+        "set-cookie": `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`,
       },
     },
   );

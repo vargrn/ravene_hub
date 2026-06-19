@@ -11,6 +11,7 @@ cp "$project_root/worker/index.js" "$dist_root/server/index.js"
 cp "$project_root/worker/index.js" "$dist_root/client/_worker.js"
 cp "$project_root/.openai/hosting.json" "$dist_root/.openai/hosting.json"
 cp "$project_root"/*.html "$dist_root/client/"
+cp "$project_root/favicon.ico" "$dist_root/client/favicon.ico"
 cp -R "$project_root/assets" "$dist_root/client/assets"
 
 if [ -d "$project_root/builds" ]; then
