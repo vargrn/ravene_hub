@@ -376,6 +376,8 @@
         const fallback = document.querySelector(`[data-moonpay-fallback="${tier}"]`);
         const activeTier = Number(account.subscription?.tier || 0);
         const activeExpiresAt = account.subscription?.expiresAt || null;
+        const scheduledDowngrade = account.subscription?.scheduledDowngrade || null;
+        const hasScheduledDowngrade = Boolean(scheduledDowngrade && Number(scheduledDowngrade.tier || 0) > 0 && Number(scheduledDowngrade.tier || 0) < activeTier);
 
         if (!plan?.paylinkId || !window.helioCheckout) {
           setJoinButton(tier, "notice", "This tier is not connected to MoonPay Commerce yet.");
@@ -383,7 +385,7 @@
           return;
         }
 
-        if (activeTier === tier) {
+        if (activeTier === tier && !hasScheduledDowngrade) {
           if (fallback) {
             fallback.hidden = false;
             fallback.disabled = true;
@@ -415,14 +417,18 @@
         container.hidden = false;
         container.innerHTML = "";
 
-        const isDowngrade = session.accessMode === "downgrade_after_current_period" || activeTier > tier;
+        const isReturnToCurrentTier = session.accessMode === "return_to_current_tier";
+        const isDowngrade = session.accessMode === "downgrade_after_current_period" || (!isReturnToCurrentTier && activeTier > tier);
         const isUpgrade = session.accessMode === "upgrade_immediate" || (activeTier > 0 && tier > activeTier);
         const scheduledStartsAt = session.scheduledStartsAt || activeExpiresAt;
-        const message = isDowngrade
-          ? `Your current Tier ${activeTier} access stays active until ${formatDate(scheduledStartsAt)}. Tier ${tier} will take over after that period.`
-          : isUpgrade
-            ? `Upgrade to Tier ${tier}. Higher access activates after MoonPay confirms the payment.`
-            : "Monthly membership via MoonPay Commerce.";
+        const replacedTier = Number(session.replacesTier || scheduledDowngrade?.tier || 0);
+        const message = isReturnToCurrentTier
+          ? `Return to Tier ${tier}. Your current Tier ${tier} access stays active until ${formatDate(scheduledStartsAt)}; the scheduled Tier ${replacedTier || 1} downgrade will be replaced after MoonPay confirms the payment.`
+          : isDowngrade
+            ? `Your current Tier ${activeTier} access stays active until ${formatDate(scheduledStartsAt)}. Tier ${tier} will take over after that period.`
+            : isUpgrade
+              ? `Upgrade to Tier ${tier}. Higher access activates after MoonPay confirms the payment.`
+              : "Monthly membership via MoonPay Commerce.";
         setTierMessage(tier, message);
 
         window.helioCheckout(container, {
@@ -433,8 +439,8 @@
           display: "button",
           theme: { themeMode: "dark" },
           customTexts: {
-            mainButtonTitle: isDowngrade ? `Switch to Tier ${tier}` : isUpgrade ? `Upgrade to Tier ${tier}` : "Join with MoonPay",
-            payButtonTitle: isDowngrade ? "Confirm next membership" : "Start membership",
+            mainButtonTitle: isReturnToCurrentTier ? `Return to Tier ${tier}` : isDowngrade ? `Switch to Tier ${tier}` : isUpgrade ? `Upgrade to Tier ${tier}` : "Join with MoonPay",
+            payButtonTitle: isReturnToCurrentTier ? `Keep Tier ${tier}` : isDowngrade ? "Confirm next membership" : "Start membership",
           },
           autofillConfig: {
             email: account.user?.email || "",
@@ -452,7 +458,7 @@
             accountEmail: account.user?.email || "",
           },
           onStartPayment: () => setTierMessage(tier, "MoonPay checkout started. Confirm the payment in the widget."),
-          onPending: () => setTierMessage(tier, isDowngrade ? "Payment is pending. Tier change is scheduled after your current higher tier ends." : "Payment is pending. Access activates after MoonPay confirms it."),
+          onPending: () => setTierMessage(tier, isReturnToCurrentTier ? `Payment is pending. Tier ${tier} will remain scheduled after your current period once MoonPay confirms it.` : isDowngrade ? "Payment is pending. Tier change is scheduled after your current higher tier ends." : "Payment is pending. Access activates after MoonPay confirms it."),
           onSuccess: () => pollMoonPayAccess(tier, (nextMessage) => setTierMessage(tier, nextMessage), session),
           onCancel: () => setTierMessage(tier, "Checkout was closed before confirmation."),
           onError: (error) => {

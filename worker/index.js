@@ -80,6 +80,10 @@ async function handleApi(request, env, url) {
       return createMoonPayCheckoutSession(request, env);
     }
 
+    if (url.pathname === "/api/moonpay/downgrade/cancel" && request.method === "POST") {
+      return cancelScheduledMoonPayDowngrade(request, env);
+    }
+
     if ((url.pathname === "/api/moonpay/webhook" || url.pathname === "/api/helio/webhook") && request.method === "POST") {
       return handleMoonPayWebhook(request, env);
     }
@@ -546,6 +550,41 @@ async function createMoonPayCheckoutSession(request, env) {
     currentTier: checkoutPlan.currentTier || 0,
     effectiveTier: checkoutPlan.effectiveTier || 0,
     scheduledStartsAt: checkoutPlan.scheduledStartsAt || null,
+    replacesTier: checkoutPlan.replacesTier || 0,
+    replacesStartsAt: checkoutPlan.replacesStartsAt || null,
+    replacesExpiresAt: checkoutPlan.replacesExpiresAt || null,
+  });
+}
+
+async function cancelScheduledMoonPayDowngrade(request, env) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+
+  const body = await readJson(request).catch(() => ({}));
+  const keepTier = Number(body.keepTier || body.tier || 0);
+  if (!keepTier || keepTier < 2) {
+    return json({ error: "A higher active tier is required to cancel a scheduled downgrade." }, { status: 400 });
+  }
+
+  const effectiveAccess = await currentEffectiveSubscriptionRow(env, account.user.id);
+  const effectiveTier = Number(effectiveAccess?.tier || 0);
+  if (effectiveTier < keepTier) {
+    return json({ error: "This higher tier is no longer active." }, { status: 409 });
+  }
+
+  const cancelled = await revokeScheduledLowerTierAccess(env, account.user.id, keepTier, new Date().toISOString());
+  if (!cancelled) {
+    return json({ error: "No scheduled downgrade was found." }, { status: 404 });
+  }
+
+  return json({
+    ok: true,
+    cancelled,
+    currentTier: effectiveTier,
+    keepTier,
+    message: `Scheduled downgrade cancelled. Tier ${effectiveTier} remains active until ${formatApiDate(effectiveAccess?.expires_at)}.`,
   });
 }
 
@@ -689,6 +728,10 @@ async function grantMoonPayAccess(env, userId, tier, details, payload) {
     await env.DB.prepare(
       "INSERT INTO subscriptions (id, user_id, tier, status, source, starts_at, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).bind(randomId(), userId, tier, "active", "moonpay", startsAt, expiresAt, now, now).run();
+  }
+
+  if (Number(tier || 0) > 1) {
+    await revokeScheduledLowerTierAccess(env, userId, Number(tier), now);
   }
 
   if (details.checkoutSessionId || details.checkoutToken) {
@@ -1211,6 +1254,7 @@ async function activeSubscription(env, userId) {
   }
 
   const latestMoonPay = await latestMoonPaySubscription(env, userId);
+  const scheduledDowngrade = row ? await scheduledLowerTierAccess(env, userId, Number(row.tier || 0)) : null;
 
   if (!row) {
     return emptySubscription(latestMoonPay);
@@ -1231,20 +1275,34 @@ async function activeSubscription(env, userId) {
     moonpayCustomerEmail: latestMoonPay?.customer_email || null,
     moonpayPayerWallet: latestMoonPay?.payer_wallet || null,
     moonpayRenewalDate: latestMoonPay?.renewal_date || null,
+    scheduledDowngrade: scheduledDowngrade ? publicScheduledSubscription(scheduledDowngrade) : null,
     canCancelRenewal: false,
   };
 }
 
 async function moonPayCheckoutPlan(env, userId, requestedTier) {
-  const [effectiveAccess, sameTierAccess, blockingAccess] = await Promise.all([
-    currentEffectiveSubscriptionRow(env, userId),
+  const effectiveAccess = await currentEffectiveSubscriptionRow(env, userId);
+  const effectiveTier = Number(effectiveAccess?.tier || 0);
+  const [sameTierAccess, blockingAccess, scheduledDowngrade] = await Promise.all([
     notExpiredSubscriptionForTier(env, userId, requestedTier),
     activeBlockingSubscriptionForTier(env, userId, requestedTier),
+    scheduledLowerTierAccess(env, userId, effectiveTier),
   ]);
 
-  const effectiveTier = Number(effectiveAccess?.tier || 0);
-
   if (sameTierAccess) {
+    if (effectiveTier === requestedTier && scheduledDowngrade && Number(scheduledDowngrade.tier || 0) < requestedTier) {
+      return {
+        mode: "return_to_current_tier",
+        effectiveTier,
+        currentTier: effectiveTier,
+        expiresAt: effectiveAccess?.expires_at || sameTierAccess.expires_at || null,
+        scheduledStartsAt: effectiveAccess?.expires_at || null,
+        replacesTier: Number(scheduledDowngrade.tier || 0),
+        replacesStartsAt: scheduledDowngrade.starts_at || null,
+        replacesExpiresAt: scheduledDowngrade.expires_at || null,
+      };
+    }
+
     return {
       mode: "same_tier_active",
       effectiveTier,
@@ -1310,6 +1368,45 @@ async function activeBlockingSubscriptionForTier(env, userId, tier) {
   ).bind(userId, now, now, tier).first();
 }
 
+async function scheduledLowerTierAccess(env, userId, currentTier) {
+  if (!env.DB || Number(currentTier || 0) <= 1) return null;
+  const now = new Date().toISOString();
+
+  return env.DB.prepare(
+    `SELECT id, tier, status, source, starts_at, expires_at
+     FROM subscriptions
+     WHERE user_id = ? AND status = 'active' AND starts_at > ? AND expires_at > ? AND tier < ?
+     ORDER BY starts_at ASC, tier DESC, expires_at DESC
+     LIMIT 1`,
+  ).bind(userId, now, now, currentTier).first();
+}
+
+async function revokeScheduledLowerTierAccess(env, userId, keepTier, now = new Date().toISOString()) {
+  if (!env.DB || Number(keepTier || 0) <= 1) return 0;
+
+  const result = await env.DB.prepare(
+    `UPDATE subscriptions
+     SET status = 'revoked', updated_at = ?
+     WHERE user_id = ? AND status = 'active' AND starts_at > ? AND expires_at > ? AND tier < ?`,
+  ).bind(now, userId, now, now, keepTier).run();
+
+  return Number(result?.meta?.changes || result?.changes || 0);
+}
+
+function publicScheduledSubscription(row) {
+  return {
+    tier: Number(row.tier || 0),
+    status: row.status || "active",
+    source: row.source || null,
+    startsAt: row.starts_at || null,
+    expiresAt: row.expires_at || null,
+  };
+}
+
+function formatApiDate(value) {
+  return value || "the current period end";
+}
+
 async function latestMoonPaySubscription(env, userId, tier = null) {
   if (!env.DB) return null;
 
@@ -1358,6 +1455,7 @@ function emptySubscription(latestMoonPay = null) {
     moonpayCustomerEmail: latestMoonPay?.customer_email || null,
     moonpayPayerWallet: latestMoonPay?.payer_wallet || null,
     moonpayRenewalDate: latestMoonPay?.renewal_date || null,
+    scheduledDowngrade: null,
     canCancelRenewal: false,
   };
 }
