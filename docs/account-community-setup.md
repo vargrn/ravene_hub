@@ -5,8 +5,9 @@
 Apply all migrations in `db/migrations` in order, including:
 
 - `0008_community_platform.sql`
+- `0009_home_pinned_posts.sql`
 
-This adds profiles, roles, dynamic posts, media attachments, likes, chat messages, and moderation logs.
+This adds profiles, roles, dynamic posts, media attachments, likes, account-embedded chat messages, moderation logs, and pinned home posts.
 
 ## Owner/admin setup
 
@@ -28,9 +29,19 @@ ON CONFLICT(user_id) DO UPDATE SET role = 'admin', updated_at = datetime('now');
 
 ## Roles
 
-- `member`: profile, likes, comments, registered-user chat.
+- `member`: profile, likes, comments, registered-user account chat.
 - `moderator`: member tools plus comment/chat deletion.
-- `admin`: moderator tools plus posts CRUD, media records, access levels, and role management.
+- `admin`: moderator tools plus posts CRUD, pinned posts, media records, access levels, and role management.
+
+## Posts and pinned cards
+
+There is no separate Posts page. The home page loads the latest post, the full post list, and pinned sidebar cards from the posts API.
+
+Admins can pin or unpin posts in Account → Posts admin panel. Pinned posts appear in the right-hand cards on the home page.
+
+## Community chat
+
+There is no separate Community page. The shared registered-user chat lives inside the Account page.
 
 ## Post media
 

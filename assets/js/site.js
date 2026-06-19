@@ -764,14 +764,36 @@
     </a>
   `;
 
+  const renderPinnedPost = (post) => `
+    <a class="glass card pinned-post-card" href="${escapeHTML(postHref(post))}">
+      <div class="meta"><span>Pinned</span><span>${escapeHTML(post.category || "Post")}</span></div>
+      <h3>${escapeHTML(post.title)}</h3>
+      <p class="text">${escapeHTML(post.excerpt || "")}</p>
+    </a>
+  `;
+
+  const renderFeedPosts = (mode, selected) => {
+    if (mode === "grid") return selected.map((post) => renderPostThumb(post)).join("");
+    if (mode === "pinned") return `<div class="pinned-post-list">${selected.map((post) => renderPinnedPost(post)).join("")}</div>`;
+    return selected.map((post, index) => renderPostCard(post, index === 0 && mode === "latest")).join("");
+  };
+
   const initPostFeeds = async () => {
-    const feedTargets = document.querySelectorAll("[data-post-feed]");
+    const feedTargets = Array.from(document.querySelectorAll("[data-post-feed]"));
     if (!feedTargets.length) return;
 
-    try {
-      const data = await api("/api/posts");
+    const grouped = feedTargets.reduce((map, target) => {
+      const mode = target.dataset.postFeed;
+      const key = mode === "pinned" ? "pinned" : "default";
+      if (!map[key]) map[key] = [];
+      map[key].push(target);
+      return map;
+    }, {});
+
+    const loadGroup = async (key, targets) => {
+      const data = await api(key === "pinned" ? "/api/posts?pinned=1" : "/api/posts");
       const posts = data.posts || [];
-      feedTargets.forEach((target) => {
+      targets.forEach((target) => {
         const mode = target.dataset.postFeed;
         const limit = Number(target.dataset.limit || (mode === "latest" ? 1 : 12));
         const selected = posts.slice(0, limit);
@@ -779,13 +801,19 @@
           target.innerHTML = `<p class="form-note">No posts are available yet.</p>`;
           return;
         }
-        target.innerHTML = selected.map((post, index) => mode === "grid" ? renderPostThumb(post) : renderPostCard(post, index === 0 && mode === "latest")).join("");
+        target.innerHTML = renderFeedPosts(mode, selected);
       });
-    } catch (error) {
-      feedTargets.forEach((target) => {
-        target.innerHTML = `<p class="form-note">${escapeHTML(error.message || "Posts are not available yet.")}</p>`;
-      });
-    }
+    };
+
+    await Promise.all(Object.entries(grouped).map(async ([key, targets]) => {
+      try {
+        await loadGroup(key, targets);
+      } catch (error) {
+        targets.forEach((target) => {
+          target.innerHTML = `<p class="form-note">${escapeHTML(error.message || "Posts are not available yet.")}</p>`;
+        });
+      }
+    }));
   };
 
   const initPostDetail = async () => {
@@ -868,6 +896,7 @@
     fields.coverUrl.value = post.coverUrl || "";
     fields.excerpt.value = post.excerpt || "";
     fields.body.value = post.body || "";
+    if (fields.pinned) fields.pinned.checked = Boolean(post.pinned || post.pinnedAt);
     const mediaBox = form.querySelector("[data-media-fields]");
     if (mediaBox) {
       const media = post.media?.length ? post.media : [{}];
@@ -893,7 +922,7 @@
     }
     list.innerHTML = posts.map((post) => `
       <article class="admin-row">
-        <div><strong>${escapeHTML(post.title)}</strong><span>${escapeHTML(post.status)} · ${escapeHTML(post.visibility)} · ${escapeHTML(postDate(post.publishedAt))}</span></div>
+        <div><strong>${escapeHTML(post.title)}</strong><span>${escapeHTML(post.status)} · ${escapeHTML(post.visibility)} · ${post.pinned || post.pinnedAt ? "Pinned · " : ""}${escapeHTML(postDate(post.publishedAt))}</span></div>
         <div class="admin-row-actions">
           <button class="mini-btn" type="button" data-admin-edit-post="${escapeHTML(post.slug)}">Edit</button>
           <button class="mini-btn danger" type="button" data-admin-delete-post="${escapeHTML(post.slug)}">Delete</button>
@@ -1011,6 +1040,7 @@
           coverUrl: values.coverUrl,
           excerpt: values.excerpt,
           body: values.body,
+          pinned: Boolean(values.pinned),
           media: mediaFromForm(form),
         };
         const editingSlug = form.dataset.editingSlug;

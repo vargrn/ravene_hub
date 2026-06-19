@@ -552,6 +552,7 @@ async function listHubPosts(request, env, url) {
   const canManage = Boolean(account.permissions?.canManagePosts);
   const scope = url.searchParams.get("scope") || "published";
   const includeAll = canManage && scope === "all";
+  const pinnedOnly = url.searchParams.get("pinned") === "1";
   const rows = await env.DB.prepare(
     `SELECT hub_posts.*,
        (SELECT COUNT(*) FROM post_likes WHERE post_likes.post_id = hub_posts.id) AS like_count,
@@ -559,9 +560,10 @@ async function listHubPosts(request, env, url) {
      FROM hub_posts
      WHERE deleted_at IS NULL
        AND (? = 1 OR status = 'published')
-     ORDER BY COALESCE(published_at, created_at) DESC
+       AND (? = 0 OR pinned_at IS NOT NULL)
+     ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END, pinned_at DESC, COALESCE(published_at, created_at) DESC
      LIMIT 80`,
-  ).bind(includeAll ? 1 : 0).all();
+  ).bind(includeAll ? 1 : 0, pinnedOnly ? 1 : 0).all();
 
   const posts = [];
   for (const row of rows.results || []) {
@@ -603,10 +605,11 @@ async function createHubPost(request, env) {
   const status = cleanPostStatus(body.status);
   const visibility = cleanPostVisibility(body.visibility);
   const postId = randomId();
+  const pinnedAt = body.pinned ? now : null;
   await env.DB.prepare(
     `INSERT INTO hub_posts
-      (id, slug, title, excerpt, body, status, visibility, category, cover_url, author_id, author_name, published_at, created_at, updated_at, deleted_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      (id, slug, title, excerpt, body, status, visibility, category, cover_url, author_id, author_name, published_at, pinned_at, created_at, updated_at, deleted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
   ).bind(
     postId,
     slug,
@@ -620,6 +623,7 @@ async function createHubPost(request, env) {
     account.user.id,
     account.user.displayName,
     status === "published" ? now : null,
+    pinnedAt,
     now,
     now,
   ).run();
@@ -648,9 +652,10 @@ async function updateHubPost(request, env, slug) {
   }
 
   const publishedAt = nextStatus === "published" ? (existing.published_at || now) : null;
+  const pinnedAt = body.pinned ? (existing.pinned_at || now) : null;
   await env.DB.prepare(
     `UPDATE hub_posts
-     SET slug = ?, title = ?, excerpt = ?, body = ?, status = ?, visibility = ?, category = ?, cover_url = ?, published_at = ?, updated_at = ?
+     SET slug = ?, title = ?, excerpt = ?, body = ?, status = ?, visibility = ?, category = ?, cover_url = ?, published_at = ?, pinned_at = ?, updated_at = ?
      WHERE id = ?`,
   ).bind(
     nextSlug,
@@ -662,6 +667,7 @@ async function updateHubPost(request, env, slug) {
     cleanLongText(body.category, 80) || null,
     cleanUrl(body.coverUrl, 500) || null,
     publishedAt,
+    pinnedAt,
     now,
     existing.id,
   ).run();
@@ -2244,6 +2250,8 @@ async function publicPost(env, row, account, options = {}) {
     publishedAt: row.published_at || row.created_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    pinnedAt: row.pinned_at || null,
+    pinned: Boolean(row.pinned_at),
     likeCount: Number(row.like_count || 0),
     commentCount: Number(row.comment_count || 0),
     likedByMe,

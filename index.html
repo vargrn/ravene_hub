@@ -19,7 +19,12 @@
           <img class="brand-mark" src="assets/media/profile/avatar.webp" alt="" />
           <span class="brand-name"><strong>Ravene Hub</strong></span>
         </a>
-        <nav class="nav" aria-label="Main navigation"><a class="is-active" href="index.html">Home</a><a href="membership.html" data-auth-nav hidden>Memberships</a><a href="builds.html">Builds</a><a href="posts.html">Posts</a><a href="community.html" data-auth-nav hidden>Community</a><a href="account.html">Account</a></nav>
+        <nav class="nav" aria-label="Main navigation">
+          <a class="is-active" href="index.html">Home</a>
+          <a href="membership.html" data-auth-nav hidden>Memberships</a>
+          <a href="builds.html">Builds</a>
+          <a href="account.html">Account</a>
+        </nav>
       </div>
     </header>
 
@@ -40,17 +45,7 @@
             <div class="section-line">
               <h2>Latest post</h2>
             </div>
-            <div data-post-feed="latest" data-limit="1">
-              <a class="latest-post latest-post-compact" href="post-alternative-system.html">
-                <img src="assets/media/posts/biopunk-duo.webp" alt="BioPunk latest post artwork" />
-                <div class="latest-post-copy">
-                  <div class="meta"><span>Development</span><span>May 22</span></div>
-                  <h3>Alternative system for Early Access verification</h3>
-                  <p class="text">Project updates, build notes, and access features are moving into the browser hub and Mini App infrastructure.</p>
-                  <div class="reaction-line"><span>♡ 1</span><span>Comment</span></div>
-                </div>
-              </a>
-            </div>
+            <div data-post-feed="latest" data-limit="1"><p class="form-note">Loading latest post...</p></div>
           </article>
 
           <section class="home-card-grid" aria-label="Hub sections">
@@ -59,10 +54,10 @@
               <h3>Build Library</h3>
               <p class="text">Public and private BioPunk builds in one place.</p>
             </a>
-            <a class="glass card home-link-card" href="post-alternative-system.html">
-              <div class="meta"><span>Development</span></div>
-              <h3>Patreon</h3>
-              <p class="text">Read the current note about the alternative access system.</p>
+            <a class="glass card home-link-card" href="membership.html" data-auth-nav hidden>
+              <div class="meta"><span>Support</span></div>
+              <h3>Memberships</h3>
+              <p class="text">Membership tiers unlock posts, notes, and build access.</p>
             </a>
             <a class="glass card home-link-card" href="https://biopunk-mini-app.pages.dev/" target="_blank" rel="noopener">
               <div class="meta"><span>Companion</span></div>
@@ -71,32 +66,16 @@
             </a>
           </section>
 
-          <article class="glass card">
+          <article class="glass card" id="posts">
             <div class="section-line">
               <h2>All posts</h2>
             </div>
-            <div data-post-feed="list" data-limit="6">
-              <p class="form-note">Loading posts...</p>
-            </div>
+            <div class="post-list" data-post-feed="list" data-limit="80"><p class="form-note">Loading posts...</p></div>
           </article>
         </section>
 
         <aside class="sidebar">
-          <section class="glass card">
-            <div class="meta"><span>Pinned</span></div>
-            <h3>BioPunk hub</h3>
-            <p class="text">This site is the browser-side surface for posts, builds, account access, and future private content.</p>
-          </section>
-          <section class="glass card">
-            <div class="meta"><span>Pinned</span></div>
-            <h3>Tier check</h3>
-            <p class="text">Launching an EA build uses the current browser account and checks whether Tier 2 access is active.</p>
-          </section>
-          <section class="glass card">
-            <div class="meta"><span>Pinned</span></div>
-            <h3>Telegram bridge</h3>
-            <p class="text">The Mini App remains a companion entrance for synchronized access and community features.</p>
-          </section>
+          <div data-post-feed="pinned" data-limit="3"><p class="form-note">Loading pinned posts...</p></div>
         </aside>
       </section>
     </main>

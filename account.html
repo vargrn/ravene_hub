@@ -11,9 +11,9 @@
 <body>
   <div class="bg-noise" aria-hidden="true"></div>
   <div class="shell">
-    <header class="topbar"><div class="topbar-inner"><a class="brand" href="index.html"><img class="brand-mark" src="assets/media/profile/avatar.webp" alt="" /><span class="brand-name"><strong>Ravene Hub</strong></span></a><nav class="nav"><a href="index.html">Home</a><a href="membership.html" data-auth-nav hidden>Memberships</a><a href="builds.html">Builds</a><a href="posts.html">Posts</a><a href="community.html" data-auth-nav hidden>Community</a><a class="is-active" href="account.html">Account</a></nav></div></header>
+    <header class="topbar"><div class="topbar-inner"><a class="brand" href="index.html"><img class="brand-mark" src="assets/media/profile/avatar.webp" alt="" /><span class="brand-name"><strong>Ravene Hub</strong></span></a><nav class="nav"><a href="index.html">Home</a><a href="membership.html" data-auth-nav hidden>Memberships</a><a href="builds.html">Builds</a><a class="is-active" href="account.html">Account</a></nav></div></header>
     <main class="main">
-      <section class="page-title"><h1>Account</h1><p data-auth-only hidden>Account identity, access status, profile controls, community role, moderation tools, and admin publishing panel.</p></section>
+      <section class="page-title"><h1>Account</h1><p data-auth-only hidden>Account identity, access status, profile controls, community role, chat, moderation tools, and admin publishing panel.</p></section>
       <div class="layout account-layout">
         <section class="stack">
           <article class="glass card" id="connect-account" data-account-panel>
@@ -36,11 +36,6 @@
                 <button class="btn btn-secondary" type="button" data-cancel-renewal-button hidden>Cancel renewal</button>
                 <button class="btn" type="button" data-resume-renewal-button hidden>Resume renewal</button>
               </div>
-            </div>
-            <div class="grid-3 single-layout" data-auth-only hidden>
-              <div class="compact-tier" data-tier-indicator="1"><div class="meta"><span>News</span></div><h3>Tier 1</h3></div>
-              <div class="compact-tier is-featured" data-tier-indicator="2"><div class="meta"><span>Builds</span></div><h3>Tier 2</h3></div>
-              <div class="compact-tier" data-tier-indicator="3"><div class="meta"><span>Private</span></div><h3>Tier 3</h3></div>
             </div>
             <div class="auth-gate" data-auth-gate>
               <button class="btn" type="button" data-auth-trigger="login">Login</button>
@@ -69,23 +64,22 @@
             </div>
           </article>
 
-          <article class="glass card" data-auth-only hidden>
-            <div class="meta"><span>Profile</span><span>Public account card</span></div>
-            <h2>Profile information</h2>
+          <details class="glass card collapsible-card" data-auth-only hidden>
+            <summary>
+              <span><span class="meta"><span>Profile</span><span>Public account card</span></span><strong>Profile information</strong></span>
+              <span class="collapse-hint">Open settings</span>
+            </summary>
             <form class="connect-form profile-form" data-profile-form>
               <div class="form-grid-2">
                 <label>Display name<input name="displayName" type="text" placeholder="Display name" /></label>
                 <label>Avatar URL<input name="avatarUrl" type="text" placeholder="assets/media/profile/avatar.webp or https://..." /></label>
               </div>
-              <label>Website / social link<input name="websiteUrl" type="text" placeholder="https://..." /></label>
-              <label>Bio<textarea name="bio" rows="3" placeholder="Short public bio"></textarea></label>
-              <label>Private note<textarea name="publicNote" rows="3" placeholder="Internal note for future account features"></textarea></label>
               <button class="btn" type="submit">Save profile</button>
               <p class="form-note" data-profile-message>Profile data is attached to the Ravene Hub account.</p>
             </form>
-          </article>
+          </details>
 
-          <article class="glass card" data-auth-only hidden>
+          <article class="glass card" data-admin-only hidden>
             <div class="meta"><span>Activity</span></div>
             <h2>Community activity</h2>
             <div class="account-status compact-status">
@@ -99,7 +93,7 @@
           <article class="glass card" id="admin-posts" data-admin-panel data-admin-only hidden>
             <div class="meta"><span>Admin</span><span>Publishing console</span></div>
             <h2>Posts admin panel</h2>
-            <p class="text">Create, edit, publish, hide or delete posts. Media can be attached as static asset paths or external URLs for images, video, audio and links.</p>
+            <p class="text">Create, edit, pin, publish, hide or delete posts. Media can be attached as static asset paths or external URLs for images, video, audio and links.</p>
             <form class="connect-form admin-post-form" data-admin-post-form>
               <div class="form-grid-2">
                 <label>Title<input name="title" type="text" placeholder="Post title" /></label>
@@ -110,6 +104,7 @@
                 <label>Status<select name="status"><option value="published">Published</option><option value="draft">Draft</option><option value="hidden">Hidden</option></select></label>
                 <label>Access<select name="visibility"><option value="public">Public</option><option value="registered">Registered</option><option value="tier1">Tier 1+</option><option value="tier2">Tier 2+</option><option value="tier3">Tier 3</option><option value="moderator">Moderators</option><option value="admin">Admins</option></select></label>
               </div>
+              <label class="check-row"><input name="pinned" type="checkbox" value="1" /> Pin this post on the home page</label>
               <label>Cover URL<input name="coverUrl" type="text" placeholder="assets/media/posts/... or https://..." /></label>
               <label>Excerpt<textarea name="excerpt" rows="3" placeholder="Short preview text"></textarea></label>
               <label>Body<textarea name="body" rows="10" placeholder="Main post text"></textarea></label>
@@ -131,11 +126,15 @@
             <div class="admin-list" data-admin-user-list><p class="form-note">Loading users...</p></div>
           </article>
         </section>
-        <aside class="sidebar">
-          <section class="glass card"><div class="meta"><span>Roles</span></div><h3>Access model</h3><br><p class="text">Member: account, likes, comments, chat. Moderator: content cleanup. Admin: posts, media, roles and publishing.</p></section>
-          <section class="glass card"><div class="meta"><span>Community</span></div><h3>Shared chat</h3><br><p class="text">Registered users can talk in a shared chat. Moderator and admin deletions are written to the moderation ledger.</p></section>
-          <section class="glass card"><div class="meta"><span>Publishing</span></div><h3>Posts</h3><br><p class="text">Posts support cover images, text, access levels, likes, comments, and attached image/video/audio/link records.</p></section>
-          <section class="glass card"><div class="meta"><span>Owner setup</span></div><h3>Admin email</h3><br><p class="text">Set ADMIN_EMAILS in hosting secrets to make the owner account admin without manual database edits.</p></section>
+        <aside class="sidebar account-chat-sidebar">
+          <section class="glass card community-chat" data-auth-only data-community-chat hidden>
+            <div class="section-line"><h2>General chat</h2><span class="form-note" data-chat-message>Login is required for chat.</span></div>
+            <div class="chat-list" data-chat-list><p class="form-note">Loading chat...</p></div>
+            <form class="comment-form" data-chat-form>
+              <textarea name="body" rows="4" maxlength="1200" placeholder="Write a message..."></textarea>
+              <div class="comment-form-actions"><button class="btn" type="submit">Send message</button></div>
+            </form>
+          </section>
         </aside>
       </div>
     </main>
