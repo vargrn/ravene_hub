@@ -531,6 +531,7 @@ async function updateAccountProfile(request, env) {
 
 async function handlePostsApi(request, env, url) {
   if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+  await ensurePostSchema(env);
 
   const parts = url.pathname.split("/").filter(Boolean); // api, posts, :slug, action
   const slug = cleanPostSlug(decodeURIComponent(parts[2] || ""));
@@ -715,6 +716,100 @@ async function handleCommunityChatApi(request, env, url) {
   if (url.pathname === "/api/community/chat" && request.method === "POST") return createChatMessage(request, env);
   if (url.pathname.startsWith("/api/community/chat/") && request.method === "DELETE") return deleteChatMessage(request, env, url);
   return json({ error: "Not found" }, { status: 404 });
+}
+
+async function ensurePostSchema(env) {
+  if (!env.DB) return;
+
+  await env.DB.batch([
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS hub_posts (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      excerpt TEXT,
+      body TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('draft', 'published', 'hidden', 'deleted')),
+      visibility TEXT NOT NULL CHECK (visibility IN ('public', 'registered', 'tier1', 'tier2', 'tier3', 'moderator', 'admin')),
+      category TEXT,
+      cover_url TEXT,
+      author_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      author_name TEXT,
+      published_at TEXT,
+      pinned_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS post_media (
+      id TEXT PRIMARY KEY,
+      post_id TEXT NOT NULL REFERENCES hub_posts(id) ON DELETE CASCADE,
+      media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video', 'audio', 'link')),
+      url TEXT NOT NULL,
+      title TEXT,
+      caption TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS post_likes (
+      post_id TEXT NOT NULL REFERENCES hub_posts(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (post_id, user_id)
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS post_comments (
+      id TEXT PRIMARY KEY,
+      post_slug TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS moderation_logs (
+      id TEXT PRIMARY KEY,
+      actor_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      target_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      reason TEXT,
+      created_at TEXT NOT NULL,
+      raw_payload TEXT
+    )`),
+  ]);
+
+  const hubColumns = await tableColumns(env, "hub_posts");
+  if (!hubColumns.has("pinned_at")) {
+    await env.DB.prepare("ALTER TABLE hub_posts ADD COLUMN pinned_at TEXT").run();
+  }
+  if (!hubColumns.has("published_at")) {
+    await env.DB.prepare("ALTER TABLE hub_posts ADD COLUMN published_at TEXT").run();
+  }
+  if (!hubColumns.has("created_at")) {
+    await env.DB.prepare("ALTER TABLE hub_posts ADD COLUMN created_at TEXT").run();
+  }
+  if (!hubColumns.has("updated_at")) {
+    await env.DB.prepare("ALTER TABLE hub_posts ADD COLUMN updated_at TEXT").run();
+  }
+
+  await env.DB.batch([
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_hub_posts_status_published ON hub_posts(status, published_at)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_hub_posts_visibility ON hub_posts(visibility)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_hub_posts_author ON hub_posts(author_id)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_hub_posts_pinned ON hub_posts(pinned_at)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id, sort_order)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_post_likes_user ON post_likes(user_id)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_post_comments_slug_created ON post_comments(post_slug, created_at)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_post_comments_user ON post_comments(user_id)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_moderation_logs_target ON moderation_logs(target_type, target_id)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_moderation_logs_actor ON moderation_logs(actor_id, created_at)"),
+  ]);
+}
+
+async function tableColumns(env, tableName) {
+  const safeTable = String(tableName || "").replace(/[^a-zA-Z0-9_]/g, "");
+  if (!safeTable) return new Set();
+  const rows = await env.DB.prepare(`PRAGMA table_info(${safeTable})`).all();
+  return new Set((rows.results || []).map((row) => String(row.name || "")));
 }
 
 async function ensureCommunityChatSchema(env) {
