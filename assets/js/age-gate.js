@@ -307,15 +307,12 @@
         <div class="ravene-age-card-inner">
           <div class="ravene-age-topline">
             <div class="ravene-age-brand"><img src="${brandMarkSrc}" alt="" /><span>Ravene Hub</span></div>
-            <div class="ravene-age-badge" aria-hidden="true">18+</div>
           </div>
-          <p class="ravene-age-meta"><span>Mature content notice</span></p>
           <h2 class="ravene-age-title" id="ravene-age-title">Access unavailable</h2>
           <p class="ravene-age-text" id="ravene-age-description">Ravene Hub is intended for visitors who are legally allowed to access mature digital content in their jurisdiction.</p>
           <div class="ravene-age-actions">
             <button class="ravene-age-button" type="button" data-ravene-age-leave>Leave site</button>
           </div>
-          <p class="ravene-age-note">If this was selected by mistake, clear this site's browser storage and reload the page.</p>
         </div>
       </section>
     `;
@@ -332,16 +329,13 @@
         <div class="ravene-age-card-inner">
           <div class="ravene-age-topline">
             <div class="ravene-age-brand"><img src="${brandMarkSrc}" alt="" /><span>Ravene Hub</span></div>
-            <div class="ravene-age-badge" aria-hidden="true">18+</div>
           </div>
-          <p class="ravene-age-meta"><span>Mature content notice</span></p>
           <h2 class="ravene-age-title" id="ravene-age-title">Age verification</h2>
           <p class="ravene-age-text" id="ravene-age-description">Ravene Hub may contain mature fictional themes and adult-oriented digital content. By entering, you confirm that you are at least 18 years old, or the age of majority in your jurisdiction if higher.</p>
           <div class="ravene-age-actions">
             <button class="ravene-age-button" type="button" data-ravene-age-accept>I am 18 or older</button>
             <button class="ravene-age-button ravene-age-button-secondary" type="button" data-ravene-age-deny>I am under 18</button>
           </div>
-          <p class="ravene-age-note">This confirmation is saved in this browser. It does not verify legal identity.</p>
         </div>
       </section>
     `;
