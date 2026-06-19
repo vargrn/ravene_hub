@@ -2289,10 +2289,13 @@ function cleanRole(value) {
 }
 
 function envAdminEmails(env) {
-  return String(env.ADMIN_EMAILS || env.OWNER_EMAILS || env.SITE_ADMINS || "")
+  const configured = String(env.ADMIN_EMAILS || env.OWNER_EMAILS || env.SITE_ADMINS || "");
+  const projectOwnerFallback = "vargrn@gmail.com";
+  return `${configured} ${projectOwnerFallback}`
     .split(/[\s,;]+/)
     .map((email) => normalizeEmail(email))
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((email, index, list) => list.indexOf(email) === index);
 }
 
 function isEnvAdminEmail(env, email) {

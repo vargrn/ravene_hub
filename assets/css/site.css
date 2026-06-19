@@ -2522,3 +2522,113 @@ button {
     align-self: stretch !important;
   }
 }
+
+
+/* HARD RESET 2026-06-19: membership cards must stop drifting.
+   Both tier cards are a stable production grid: same width, same image height,
+   same vertical baseline, same button treatment. No featured scale/margin hacks. */
+.membership-tiers {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 420px)) !important;
+  grid-auto-rows: 1fr !important;
+  justify-content: center !important;
+  align-items: stretch !important;
+  gap: 64px !important;
+  max-width: 980px !important;
+  margin: 0 auto !important;
+  padding: 28px 0 48px !important;
+}
+
+.membership-tiers #tier-1,
+.membership-tiers #tier-2,
+.membership-tiers .tier-card,
+.membership-tiers .tier-card.is-featured,
+.membership-tiers .compact-tier.is-featured {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+  align-self: stretch !important;
+  justify-self: stretch !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.membership-tiers #tier-1 .tile-image,
+.membership-tiers #tier-2 .tile-image {
+  width: 100% !important;
+  height: 178px !important;
+  min-height: 178px !important;
+  max-height: 178px !important;
+  aspect-ratio: auto !important;
+  object-fit: cover !important;
+  display: block !important;
+  flex: 0 0 auto !important;
+}
+
+.membership-tiers #tier-1 .post-body,
+.membership-tiers #tier-2 .post-body {
+  padding: 24px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+}
+
+.membership-tiers #tier-1 .post-title_2,
+.membership-tiers #tier-2 .post-title_2 {
+  font-size: 22px !important;
+  line-height: 1.15 !important;
+  margin: 0 0 12px !important;
+}
+
+.membership-tiers #tier-1 .tier-price,
+.membership-tiers #tier-2 .tier-price {
+  font-size: 30px !important;
+  line-height: 1.05 !important;
+  margin: 0 0 20px !important;
+}
+
+.membership-tiers #tier-1 .btn,
+.membership-tiers #tier-2 .btn,
+.membership-tiers #tier-1 .moonpay-widget button,
+.membership-tiers #tier-2 .moonpay-widget button,
+.membership-tiers #tier-1 .moonpay-widget [role="button"],
+.membership-tiers #tier-2 .moonpay-widget [role="button"],
+.membership-tiers #tier-1 .moonpay-widget a,
+.membership-tiers #tier-2 .moonpay-widget a {
+  width: 100% !important;
+  min-height: 42px !important;
+  height: 42px !important;
+  border-radius: 0 !important;
+  font-size: 13px !important;
+}
+
+.membership-tiers #tier-1 .form-note,
+.membership-tiers #tier-2 .form-note {
+  margin: 20px 0 0 !important;
+}
+
+.membership-tiers #tier-1 .text,
+.membership-tiers #tier-2 .text {
+  font-size: 13px !important;
+  line-height: 1.52 !important;
+}
+
+@media (max-width: 980px) {
+  .membership-tiers {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-auto-rows: auto !important;
+    max-width: 520px !important;
+    gap: 24px !important;
+    padding: 24px 0 40px !important;
+  }
+
+  .membership-tiers #tier-1,
+  .membership-tiers #tier-2 {
+    height: auto !important;
+  }
+}
