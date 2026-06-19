@@ -844,14 +844,54 @@
     await loadComments();
   };
 
-  const renderPostCard = (post, featured = false) => `
-    <a class="latest-post ${featured ? "" : "latest-post-compact"}" href="${escapeHTML(postHref(post))}">
-      <img src="${escapeHTML(post.coverUrl || "assets/media/posts/biopunk-duo.webp")}" alt="${escapeHTML(post.title)} artwork" />
-      <div class="latest-post-copy">
-        <div class="meta"><span>${escapeHTML(post.category || "Development")}</span><span>${escapeHTML(postDate(post.publishedAt))}</span><span>${escapeHTML(post.visibility || "public")}</span></div>
+  const postVisibilityLabel = (value) => {
+    const visibility = String(value || "public").toLowerCase();
+    if (visibility === "registered") return "Members";
+    if (visibility === "tier1") return "Tier 1+";
+    if (visibility === "tier2") return "Tier 2+";
+    if (visibility === "tier3") return "Tier 3";
+    if (visibility === "moderator") return "Moderators";
+    if (visibility === "admin") return "Admins";
+    return "Public";
+  };
+
+  const postMetaMarkup = (post) => `
+    <div class="post-meta-row">
+      <span>${escapeHTML(post.category || "Development")}</span>
+      <span>${escapeHTML(postDate(post.publishedAt))}</span>
+      <span class="post-access-badge">${escapeHTML(postVisibilityLabel(post.visibility))}</span>
+    </div>
+  `;
+
+  const postActionsMarkup = (post, label = "Open post") => `
+    <div class="post-action-row">
+      <div class="reaction-line"><span>♡ ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
+      <span class="post-open-link">${escapeHTML(label)}</span>
+    </div>
+  `;
+
+  const renderPostCard = (post, featured = false) => featured ? `
+    <a class="post-feature-card" href="${escapeHTML(postHref(post))}">
+      <div class="post-feature-cover">
+        <img src="${escapeHTML(post.coverUrl || "assets/media/posts/biopunk-duo.webp")}" alt="${escapeHTML(post.title)} artwork" />
+      </div>
+      <div class="post-feature-body">
+        ${postMetaMarkup(post)}
         <h3>${escapeHTML(post.title)}</h3>
         <p class="text">${escapeHTML(post.excerpt || "")}</p>
-        <div class="reaction-line"><span>♡ ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
+        ${postActionsMarkup(post, "Read post")}
+      </div>
+    </a>
+  ` : `
+    <a class="post-feed-row" href="${escapeHTML(postHref(post))}">
+      <div class="post-feed-cover">
+        <img src="${escapeHTML(post.coverUrl || "assets/media/posts/biopunk-duo.webp")}" alt="${escapeHTML(post.title)} artwork" />
+      </div>
+      <div class="post-feed-body">
+        ${postMetaMarkup(post)}
+        <h3>${escapeHTML(post.title)}</h3>
+        <p class="text">${escapeHTML(post.excerpt || "")}</p>
+        ${postActionsMarkup(post, "Open post")}
       </div>
     </a>
   `;
@@ -860,11 +900,10 @@
     <a class="post-card-thumb" href="${escapeHTML(postHref(post))}">
       <img src="${escapeHTML(post.coverUrl || "assets/media/posts/biopunk-duo.webp")}" alt="${escapeHTML(post.title)} artwork" />
       <div class="post-card-body">
-        <div class="meta"><span>${escapeHTML(post.category || "Post")}</span><span>${escapeHTML(post.visibility || "public")}</span></div>
+        ${postMetaMarkup(post)}
         <h3>${escapeHTML(post.title)}</h3>
         <p class="text">${escapeHTML(post.excerpt || "")}</p>
-        <div class="post-date">${escapeHTML(postDate(post.publishedAt))}</div>
-        <div class="reaction-line"><span>♡ ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
+        ${postActionsMarkup(post, "Open post")}
       </div>
     </a>
   `;
@@ -880,7 +919,8 @@
   const renderFeedPosts = (mode, selected) => {
     if (mode === "grid") return selected.map((post) => renderPostThumb(post)).join("");
     if (mode === "pinned") return `<div class="pinned-post-list">${selected.map((post) => renderPinnedPost(post)).join("")}</div>`;
-    return selected.map((post, index) => renderPostCard(post, index === 0 && mode === "latest")).join("");
+    if (mode === "latest") return selected.slice(0, 1).map((post) => renderPostCard(post, true)).join("");
+    return selected.map((post) => renderPostCard(post, false)).join("");
   };
 
   const initPostFeeds = async () => {
