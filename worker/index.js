@@ -484,6 +484,24 @@ async function createMoonPayCheckoutSession(request, env) {
   if (!tier || tier < 1 || tier > 3) return json({ error: "Membership tier is invalid" }, { status: 400 });
   if (!paylinkId) return json({ error: "This MoonPay Commerce tier is not configured yet" }, { status: 503 });
 
+  let checkoutPlan = { mode: "new", effectiveTier: 0, currentTier: 0, scheduledStartsAt: null };
+  try {
+    checkoutPlan = await moonPayCheckoutPlan(env, account.user.id, tier);
+  } catch (error) {
+    if (isMissingSchemaError(error)) return moonPayMigrationMissingResponse();
+    throw error;
+  }
+
+  if (checkoutPlan.mode === "same_tier_active") {
+    return json({
+      error: "This membership tier is already active.",
+      code: "tier_already_active",
+      tier,
+      currentTier: checkoutPlan.currentTier,
+      expiresAt: checkoutPlan.expiresAt || null,
+    }, { status: 409 });
+  }
+
   const now = new Date().toISOString();
   const sessionId = randomId();
   const checkoutToken = randomToken();
@@ -505,6 +523,9 @@ async function createMoonPayCheckoutSession(request, env) {
       JSON.stringify({
         userAgent: request.headers.get("user-agent") || "",
         referer: request.headers.get("referer") || "",
+        accessMode: checkoutPlan.mode,
+        currentTier: checkoutPlan.currentTier || 0,
+        scheduledStartsAt: checkoutPlan.scheduledStartsAt || null,
       }),
     ).run();
   } catch (error) {
@@ -521,6 +542,10 @@ async function createMoonPayCheckoutSession(request, env) {
     network: config.network,
     paymentType: config.paymentType,
     primaryPaymentMethod: config.primaryPaymentMethod,
+    accessMode: checkoutPlan.mode,
+    currentTier: checkoutPlan.currentTier || 0,
+    effectiveTier: checkoutPlan.effectiveTier || 0,
+    scheduledStartsAt: checkoutPlan.scheduledStartsAt || null,
   });
 }
 
@@ -638,23 +663,39 @@ async function moonPayCheckoutSession(env, sessionId, checkoutToken) {
 
 async function grantMoonPayAccess(env, userId, tier, details, payload) {
   const now = new Date().toISOString();
-  const startsAt = details.createdAt || now;
-  const expiresAt = details.renewalDate || addDays(new Date(), MOONPAY_SUBSCRIPTION_DAYS_FALLBACK).toISOString();
+  const blockingAccess = await activeBlockingSubscriptionForTier(env, userId, tier);
+  const startsAt = blockingAccess?.expires_at || details.createdAt || now;
+  let expiresAt = details.renewalDate || addDays(new Date(startsAt), MOONPAY_SUBSCRIPTION_DAYS_FALLBACK).toISOString();
 
-  await env.DB.batch([
-    env.DB.prepare(
-      "UPDATE subscriptions SET status = 'revoked', updated_at = ? WHERE user_id = ? AND source = 'moonpay' AND status = 'active'",
-    ).bind(now, userId),
-    env.DB.prepare(
+  if (new Date(expiresAt).getTime() <= new Date(startsAt).getTime()) {
+    expiresAt = addDays(new Date(startsAt), MOONPAY_SUBSCRIPTION_DAYS_FALLBACK).toISOString();
+  }
+
+  const existingMoonPayAccess = await env.DB.prepare(
+    `SELECT id, starts_at, expires_at
+     FROM subscriptions
+     WHERE user_id = ? AND tier = ? AND source = 'moonpay' AND status = 'active' AND expires_at > ?
+     ORDER BY expires_at DESC
+     LIMIT 1`,
+  ).bind(userId, tier, now).first();
+
+  if (existingMoonPayAccess) {
+    const nextStartsAt = earlierIso(existingMoonPayAccess.starts_at, startsAt);
+    const nextExpiresAt = laterIso(existingMoonPayAccess.expires_at, expiresAt);
+    await env.DB.prepare(
+      "UPDATE subscriptions SET starts_at = ?, expires_at = ?, updated_at = ? WHERE id = ?",
+    ).bind(nextStartsAt, nextExpiresAt, now, existingMoonPayAccess.id).run();
+  } else {
+    await env.DB.prepare(
       "INSERT INTO subscriptions (id, user_id, tier, status, source, starts_at, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).bind(randomId(), userId, tier, "active", "moonpay", startsAt, expiresAt, now, now),
-  ]);
+    ).bind(randomId(), userId, tier, "active", "moonpay", startsAt, expiresAt, now, now).run();
+  }
 
   if (details.checkoutSessionId || details.checkoutToken) {
     await markMoonPayCheckoutSession(env, details, "active", now, payload);
   }
 
-  return { expiresAt };
+  return { startsAt, expiresAt };
 }
 
 async function endMoonPayAccess(env, details, eventType, payload) {
@@ -678,8 +719,8 @@ async function endMoonPayAccess(env, details, eventType, payload) {
   if (!userId) return;
 
   await env.DB.prepare(
-    "UPDATE subscriptions SET status = ?, updated_at = ? WHERE user_id = ? AND source = 'moonpay' AND status = 'active'",
-  ).bind(eventType === "ENDED" || eventType === "EXPIRED" ? "expired" : "revoked", now, userId).run();
+    "UPDATE subscriptions SET status = ?, updated_at = ? WHERE user_id = ? AND source = 'moonpay' AND tier = ? AND status = 'active'",
+  ).bind(eventType === "ENDED" || eventType === "EXPIRED" ? "expired" : "revoked", now, userId, tier).run();
 
   if (details.checkoutSessionId || details.checkoutToken) {
     await markMoonPayCheckoutSession(env, details, "ended", now, payload);
@@ -953,7 +994,7 @@ function moonPayConfig(env) {
   const rawMode = String(env.MOONPAY_MODE || env.HELIO_MODE || "test").trim().toLowerCase();
   const mode = MOONPAY_ALLOWED_MODES.has(rawMode) ? rawMode : "test";
   const network = cleanMoonPayNetwork(env.MOONPAY_NETWORK || env.HELIO_NETWORK) || (mode === "live" ? "main" : "test");
-  const paymentType = "paylink";
+  const paymentType = String(env.MOONPAY_PAYMENT_TYPE || env.HELIO_PAYMENT_TYPE || "paylink").trim() === "paystream" ? "paystream" : "paylink";
   const primaryPaymentMethod = String(env.MOONPAY_PRIMARY_PAYMENT_METHOD || env.HELIO_PRIMARY_PAYMENT_METHOD || "crypto").trim() === "fiat" ? "fiat" : "crypto";
 
   return {
@@ -1158,17 +1199,10 @@ async function upsertIdentity(env, userId, identity) {
 }
 
 async function activeSubscription(env, userId) {
-  const now = new Date().toISOString();
   let row = null;
 
   try {
-    row = await env.DB.prepare(
-      `SELECT tier, status, source, starts_at, expires_at
-       FROM subscriptions
-       WHERE user_id = ? AND status = 'active' AND expires_at > ? AND source = 'moonpay'
-       ORDER BY tier DESC, expires_at DESC
-       LIMIT 1`,
-    ).bind(userId, now).first();
+    row = await currentEffectiveSubscriptionRow(env, userId);
   } catch (error) {
     if (isMissingSchemaError(error)) {
       return emptySubscription();
@@ -1176,14 +1210,11 @@ async function activeSubscription(env, userId) {
     throw error;
   }
 
+  const latestMoonPay = await latestMoonPaySubscription(env, userId);
+
   if (!row) {
-    const latestMoonPay = await latestMoonPaySubscription(env, userId);
     return emptySubscription(latestMoonPay);
   }
-
-  const moonpay = row.source === "moonpay"
-    ? await latestMoonPaySubscription(env, userId, Number(row.tier))
-    : null;
 
   return {
     tier: Number(row.tier),
@@ -1194,13 +1225,89 @@ async function activeSubscription(env, userId) {
     canReadLocked: Number(row.tier) >= 1,
     canLaunchBuilds: Number(row.tier) >= 2,
     paymentSource: row.source,
-    renewalStatus: moonpay?.status || (row.source === "moonpay" ? "active" : row.status),
-    moonpaySubscriptionId: moonpay?.moonpay_subscription_id || null,
-    moonpayCustomerEmail: moonpay?.customer_email || null,
-    moonpayPayerWallet: moonpay?.payer_wallet || null,
-    moonpayRenewalDate: moonpay?.renewal_date || null,
+    renewalStatus: latestMoonPay?.status || (row.source === "moonpay" ? "active" : row.status),
+    moonpayTier: latestMoonPay ? Number(latestMoonPay.tier || 0) : 0,
+    moonpaySubscriptionId: latestMoonPay?.moonpay_subscription_id || null,
+    moonpayCustomerEmail: latestMoonPay?.customer_email || null,
+    moonpayPayerWallet: latestMoonPay?.payer_wallet || null,
+    moonpayRenewalDate: latestMoonPay?.renewal_date || null,
     canCancelRenewal: false,
   };
+}
+
+async function moonPayCheckoutPlan(env, userId, requestedTier) {
+  const [effectiveAccess, sameTierAccess, blockingAccess] = await Promise.all([
+    currentEffectiveSubscriptionRow(env, userId),
+    notExpiredSubscriptionForTier(env, userId, requestedTier),
+    activeBlockingSubscriptionForTier(env, userId, requestedTier),
+  ]);
+
+  const effectiveTier = Number(effectiveAccess?.tier || 0);
+
+  if (sameTierAccess) {
+    return {
+      mode: "same_tier_active",
+      effectiveTier,
+      currentTier: Number(sameTierAccess.tier || requestedTier),
+      expiresAt: sameTierAccess.expires_at || null,
+      scheduledStartsAt: null,
+    };
+  }
+
+  if (blockingAccess && Number(blockingAccess.tier || 0) > requestedTier) {
+    return {
+      mode: "downgrade_after_current_period",
+      effectiveTier,
+      currentTier: Number(blockingAccess.tier || 0),
+      expiresAt: blockingAccess.expires_at || null,
+      scheduledStartsAt: blockingAccess.expires_at || null,
+    };
+  }
+
+  if (effectiveTier > 0 && requestedTier > effectiveTier) {
+    return { mode: "upgrade_immediate", effectiveTier, currentTier: effectiveTier, scheduledStartsAt: null };
+  }
+
+  return { mode: "new", effectiveTier, currentTier: effectiveTier, scheduledStartsAt: null };
+}
+
+async function currentEffectiveSubscriptionRow(env, userId) {
+  if (!env.DB) return null;
+  const now = new Date().toISOString();
+
+  return env.DB.prepare(
+    `SELECT tier, status, source, starts_at, expires_at
+     FROM subscriptions
+     WHERE user_id = ? AND status = 'active' AND starts_at <= ? AND expires_at > ?
+     ORDER BY tier DESC, expires_at DESC
+     LIMIT 1`,
+  ).bind(userId, now, now).first();
+}
+
+async function notExpiredSubscriptionForTier(env, userId, tier) {
+  if (!env.DB) return null;
+  const now = new Date().toISOString();
+
+  return env.DB.prepare(
+    `SELECT tier, status, source, starts_at, expires_at
+     FROM subscriptions
+     WHERE user_id = ? AND tier = ? AND status = 'active' AND expires_at > ?
+     ORDER BY starts_at DESC, expires_at DESC
+     LIMIT 1`,
+  ).bind(userId, tier, now).first();
+}
+
+async function activeBlockingSubscriptionForTier(env, userId, tier) {
+  if (!env.DB) return null;
+  const now = new Date().toISOString();
+
+  return env.DB.prepare(
+    `SELECT tier, status, source, starts_at, expires_at
+     FROM subscriptions
+     WHERE user_id = ? AND status = 'active' AND starts_at <= ? AND expires_at > ? AND tier >= ?
+     ORDER BY tier DESC, expires_at DESC
+     LIMIT 1`,
+  ).bind(userId, now, now, tier).first();
 }
 
 async function latestMoonPaySubscription(env, userId, tier = null) {
@@ -1246,12 +1353,25 @@ function emptySubscription(latestMoonPay = null) {
     canLaunchBuilds: false,
     paymentSource: latestMoonPay ? "moonpay" : null,
     renewalStatus: latestMoonPay?.status || "none",
+    moonpayTier: latestMoonPay ? Number(latestMoonPay.tier || 0) : 0,
     moonpaySubscriptionId: latestMoonPay?.moonpay_subscription_id || null,
     moonpayCustomerEmail: latestMoonPay?.customer_email || null,
     moonpayPayerWallet: latestMoonPay?.payer_wallet || null,
     moonpayRenewalDate: latestMoonPay?.renewal_date || null,
     canCancelRenewal: false,
   };
+}
+
+function earlierIso(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return new Date(a).getTime() <= new Date(b).getTime() ? a : b;
+}
+
+function laterIso(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
 }
 
 function isMissingSchemaError(error, tableNames = []) {
