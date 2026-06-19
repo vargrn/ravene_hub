@@ -69,6 +69,8 @@
     const panel = document.querySelector("[data-account-panel]");
     const renewalNote = document.querySelector("[data-renewal-note]");
     const subscriptionMessage = document.querySelector("[data-subscription-message]");
+    const cancelRenewalButton = document.querySelector("[data-cancel-renewal-button]");
+    const resumeRenewalButton = document.querySelector("[data-resume-renewal-button]");
     setAuthNavVisible(Boolean(account.authenticated));
     if (!panel) return;
 
@@ -80,6 +82,8 @@
       setText("[data-account-state]", "Setup required");
       setText("[data-account-summary]", "The account database is not connected yet. Hosting needs the DB binding and migration.");
       if (renewalNote) renewalNote.hidden = true;
+      if (cancelRenewalButton) cancelRenewalButton.hidden = true;
+      if (resumeRenewalButton) resumeRenewalButton.hidden = true;
       return;
     }
 
@@ -94,6 +98,8 @@
       setText("[data-account-renewal-status]", "-");
       setText("[data-account-source]", "-");
       if (renewalNote) renewalNote.hidden = true;
+      if (cancelRenewalButton) cancelRenewalButton.hidden = true;
+      if (resumeRenewalButton) resumeRenewalButton.hidden = true;
       document.querySelectorAll("[data-auth-gate], [data-auth-trigger]").forEach((item) => {
         item.hidden = false;
       });
@@ -119,13 +125,24 @@
     setText("[data-account-renewal-status]", renewalStatusLabel(renewalStatus, tier));
     setText("[data-account-source]", paymentSourceLabel(paymentSource));
 
-    if (renewalNote) renewalNote.hidden = !showMoonPayNote;
+    const cancelAtPeriodEnd = Boolean(account.subscription?.cancelAtPeriodEnd);
+    if (renewalNote) renewalNote.hidden = !(showMoonPayNote || cancelAtPeriodEnd);
     if (subscriptionMessage) {
-      subscriptionMessage.textContent = showMoonPayNote
-        ? "MoonPay Commerce controls renewal links. Access updates here after confirmed webhook events."
-        : renewalStatus === "cancelled" && tier > 0
-          ? "Renewal is cancelled. Paid access remains until the expiry date."
-          : "";
+      subscriptionMessage.textContent = cancelAtPeriodEnd
+        ? `Renewal is cancelled. Paid access remains until ${formatDate(account.subscription?.expiresAt)}.`
+        : showMoonPayNote
+          ? "MoonPay Commerce renewals are managed through Ravene Hub. Access updates here after confirmed webhook events."
+          : renewalStatus === "cancelled" && tier > 0
+            ? "Renewal is cancelled. Paid access remains until the expiry date."
+            : "";
+    }
+    if (cancelRenewalButton) {
+      cancelRenewalButton.hidden = !account.subscription?.canCancelRenewal;
+      cancelRenewalButton.disabled = false;
+    }
+    if (resumeRenewalButton) {
+      resumeRenewalButton.hidden = !account.subscription?.canResumeRenewal;
+      resumeRenewalButton.disabled = false;
     }
 
     document.querySelectorAll("[data-tier-indicator]").forEach((item) => {
@@ -249,6 +266,34 @@
       await api("/api/logout", { method: "POST", body: "{}" }).catch(() => null);
       window.location.reload();
     });
+  };
+
+  const initRenewalControls = () => {
+    const bindRenewalButton = (selector, endpoint, workingText) => {
+      const button = document.querySelector(selector);
+      if (!button) return;
+
+      button.addEventListener("click", async () => {
+        const previous = button.textContent;
+        const message = document.querySelector("[data-subscription-message]");
+        button.disabled = true;
+        button.textContent = workingText;
+        if (message) message.textContent = workingText;
+
+        try {
+          const result = await api(endpoint, { method: "POST", body: "{}" });
+          if (message) message.textContent = result.message || "Subscription updated.";
+          renderAccount(await api("/api/me"));
+        } catch (error) {
+          button.disabled = false;
+          button.textContent = previous;
+          if (message) message.textContent = error.message || "Could not update renewal.";
+        }
+      });
+    };
+
+    bindRenewalButton("[data-cancel-renewal-button]", "/api/subscription/cancel-renewal", "Cancelling renewal...");
+    bindRenewalButton("[data-resume-renewal-button]", "/api/subscription/resume-renewal", "Resuming renewal...");
   };
 
   const initBuildLaunch = () => {
@@ -385,6 +430,30 @@
           return;
         }
 
+        if (activeTier === tier && account.subscription?.cancelAtPeriodEnd && !hasScheduledDowngrade) {
+          if (fallback) {
+            fallback.hidden = false;
+            fallback.disabled = false;
+            fallback.textContent = "Resume renewal";
+            fallback.onclick = async () => {
+              fallback.disabled = true;
+              fallback.textContent = "Resuming...";
+              setTierMessage(tier, "Resuming renewal in Ravene Hub...");
+              try {
+                await api("/api/subscription/resume-renewal", { method: "POST", body: "{}" });
+                window.location.reload();
+              } catch (error) {
+                fallback.disabled = false;
+                fallback.textContent = "Resume renewal";
+                setTierMessage(tier, error.message || "Could not resume renewal.");
+              }
+            };
+          }
+          container.hidden = true;
+          setTierMessage(tier, `Renewal is cancelled. Paid access remains until ${formatDate(activeExpiresAt)}.`);
+          return;
+        }
+
         if (activeTier === tier && !hasScheduledDowngrade) {
           if (fallback) {
             fallback.hidden = false;
@@ -427,7 +496,7 @@
           : isDowngrade
             ? `Your current Tier ${activeTier} access stays active until ${formatDate(scheduledStartsAt)}. Tier ${tier} will take over after that period.`
             : isUpgrade
-              ? `Upgrade to Tier ${tier}. Higher access activates after MoonPay confirms the payment.`
+              ? `Upgrade to Tier ${tier}. This charges the full Tier ${tier} price, activates higher access immediately after MoonPay confirms it, and marks the lower MoonPay tier as replaced in Ravene Hub.`
               : "Monthly membership via MoonPay Commerce.";
         setTierMessage(tier, message);
 
@@ -440,7 +509,7 @@
           theme: { themeMode: "dark" },
           customTexts: {
             mainButtonTitle: isReturnToCurrentTier ? `Return to Tier ${tier}` : isDowngrade ? `Switch to Tier ${tier}` : isUpgrade ? `Upgrade to Tier ${tier}` : "Join with MoonPay",
-            payButtonTitle: isReturnToCurrentTier ? `Keep Tier ${tier}` : isDowngrade ? "Confirm next membership" : "Start membership",
+            payButtonTitle: isReturnToCurrentTier ? `Keep Tier ${tier}` : isDowngrade ? "Confirm next membership" : isUpgrade ? "Pay full Tier 2 price" : "Start membership",
           },
           autofillConfig: {
             email: account.user?.email || "",
@@ -624,6 +693,7 @@
   initAuthTabs();
   initPasswordAuth();
   initLogout();
+  initRenewalControls();
   initBuildLaunch();
   initMoonPaySubscriptions();
   initPostComments();

@@ -84,6 +84,14 @@ async function handleApi(request, env, url) {
       return cancelScheduledMoonPayDowngrade(request, env);
     }
 
+    if (url.pathname === "/api/subscription/cancel-renewal" && request.method === "POST") {
+      return cancelSubscriptionRenewal(request, env);
+    }
+
+    if (url.pathname === "/api/subscription/resume-renewal" && request.method === "POST") {
+      return resumeSubscriptionRenewal(request, env);
+    }
+
     if ((url.pathname === "/api/moonpay/webhook" || url.pathname === "/api/helio/webhook") && request.method === "POST") {
       return handleMoonPayWebhook(request, env);
     }
@@ -588,6 +596,110 @@ async function cancelScheduledMoonPayDowngrade(request, env) {
   });
 }
 
+
+async function cancelSubscriptionRenewal(request, env) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+
+  const access = await currentEffectiveSubscriptionRow(env, account.user.id);
+  if (!access) return json({ error: "No active membership was found." }, { status: 404 });
+  if (access.source !== "moonpay") {
+    return json({ error: "This membership source cannot be cancelled from Ravene Hub yet." }, { status: 409 });
+  }
+
+  const existing = await activeRenewalCancellation(env, account.user.id, access);
+  if (existing) {
+    return json({
+      ok: true,
+      alreadyCancelled: true,
+      expiresAt: access.expires_at,
+      message: `Renewal is already cancelled. Paid access remains active until ${formatApiDate(access.expires_at)}.`,
+    });
+  }
+
+  const now = new Date().toISOString();
+  const latestMoonPay = await latestMoonPaySubscription(env, account.user.id, Number(access.tier || 0));
+  try {
+    await insertSubscriptionControl(env, {
+      userId: account.user.id,
+      subscriptionId: access.id,
+      moonpaySubscriptionId: latestMoonPay?.moonpay_subscription_id || null,
+      tier: Number(access.tier || 0),
+      action: "cancel_renewal",
+      status: "active",
+      effectiveAt: access.expires_at || null,
+      rawPayload: {
+        reason: "user_requested_cancel_at_period_end",
+        note: "MoonPay public docs expose expiry-by-non-renewal, not a per-user merchant cancel endpoint.",
+      },
+      now,
+    });
+
+    if (latestMoonPay?.moonpay_subscription_id) {
+      await env.DB.prepare(
+        `UPDATE moonpay_subscriptions
+         SET status = 'cancelled', updated_at = ?
+         WHERE user_id = ? AND moonpay_subscription_id = ? AND status IN ('pending', 'active', 'renewed')`,
+      ).bind(now, account.user.id, latestMoonPay.moonpay_subscription_id).run();
+    }
+  } catch (error) {
+    if (isMissingSchemaError(error, ["subscription_controls"])) return subscriptionControlsMigrationMissingResponse();
+    throw error;
+  }
+
+  return json({
+    ok: true,
+    cancelAtPeriodEnd: true,
+    tier: Number(access.tier || 0),
+    expiresAt: access.expires_at,
+    message: `Renewal cancelled. Paid access remains active until ${formatApiDate(access.expires_at)}.`,
+  });
+}
+
+async function resumeSubscriptionRenewal(request, env) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+
+  const access = await currentEffectiveSubscriptionRow(env, account.user.id);
+  if (!access) return json({ error: "No active membership was found." }, { status: 404 });
+  if (access.source !== "moonpay") {
+    return json({ error: "This membership source cannot be resumed from Ravene Hub yet." }, { status: 409 });
+  }
+
+  const now = new Date().toISOString();
+  try {
+    const result = await env.DB.prepare(
+      `UPDATE subscription_controls
+       SET status = 'revoked', updated_at = ?
+       WHERE user_id = ? AND action = 'cancel_renewal' AND status = 'active'
+         AND (subscription_id = ? OR (subscription_id IS NULL AND tier = ?))`,
+    ).bind(now, account.user.id, access.id, Number(access.tier || 0)).run();
+
+    const latestMoonPay = await latestMoonPaySubscription(env, account.user.id, Number(access.tier || 0));
+    if (latestMoonPay?.moonpay_subscription_id) {
+      await env.DB.prepare(
+        `UPDATE moonpay_subscriptions
+         SET status = 'active', updated_at = ?
+         WHERE user_id = ? AND moonpay_subscription_id = ? AND status = 'cancelled'`,
+      ).bind(now, account.user.id, latestMoonPay.moonpay_subscription_id).run();
+    }
+
+    return json({
+      ok: true,
+      resumed: Number(result?.meta?.changes || result?.changes || 0),
+      tier: Number(access.tier || 0),
+      message: "Renewal resumed in Ravene Hub.",
+    });
+  } catch (error) {
+    if (isMissingSchemaError(error, ["subscription_controls"])) return subscriptionControlsMigrationMissingResponse();
+    throw error;
+  }
+}
+
 async function handleMoonPayWebhook(request, env) {
   if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
 
@@ -654,6 +766,9 @@ async function resolveMoonPayDetails(env, details) {
     tier = Number(session.tier || 0) || tier;
     paylinkId = paylinkId || session.paylink_id;
     checkoutSessionId = checkoutSessionId || session.id;
+    const sessionMeta = parseObject(session.raw_payload) || {};
+    details.accessMode = details.accessMode || sessionMeta.accessMode || null;
+    details.sessionCurrentTier = Number(details.sessionCurrentTier || sessionMeta.currentTier || 0);
   }
 
   if (paylinkId) tier = tierForMoonPayPaylink(env, paylinkId) || tier;
@@ -688,7 +803,7 @@ async function moonPayCheckoutSession(env, sessionId, checkoutToken) {
   const token = cleanMoonPayToken(checkoutToken);
   if (token) {
     const row = await env.DB.prepare(
-      "SELECT id, user_id, tier, paylink_id FROM moonpay_checkout_sessions WHERE checkout_token = ? LIMIT 1",
+      "SELECT id, user_id, tier, paylink_id, status, raw_payload FROM moonpay_checkout_sessions WHERE checkout_token = ? LIMIT 1",
     ).bind(token).first();
     if (row) return row;
   }
@@ -696,7 +811,7 @@ async function moonPayCheckoutSession(env, sessionId, checkoutToken) {
   const id = cleanRecordId(sessionId);
   if (!id) return null;
   return env.DB.prepare(
-    "SELECT id, user_id, tier, paylink_id FROM moonpay_checkout_sessions WHERE id = ? LIMIT 1",
+    "SELECT id, user_id, tier, paylink_id, status, raw_payload FROM moonpay_checkout_sessions WHERE id = ? LIMIT 1",
   ).bind(id).first();
 }
 
@@ -732,6 +847,9 @@ async function grantMoonPayAccess(env, userId, tier, details, payload) {
 
   if (Number(tier || 0) > 1) {
     await revokeScheduledLowerTierAccess(env, userId, Number(tier), now);
+    if (details.accessMode === "upgrade_immediate") {
+      await supersedeActiveLowerTierAccess(env, userId, Number(tier), now, details, payload);
+    }
   }
 
   if (details.checkoutSessionId || details.checkoutToken) {
@@ -979,6 +1097,7 @@ function moonPayPayloadDetails(env, payload) {
     userId: cleanRecordId(additional.userId || additional.customerId || payload.userId || payload.data?.userId),
     checkoutSessionId: cleanRecordId(additional.checkoutSessionId || additional.sessionId || payload.checkoutSessionId || payload.data?.checkoutSessionId),
     checkoutToken: cleanMoonPayToken(additional.checkoutToken || payload.checkoutToken || payload.data?.checkoutToken),
+    accessMode: String(additional.accessMode || payload.accessMode || payload.data?.accessMode || "").trim() || null,
     email,
     payerWallet: cleanWallet(meta.senderPK || payload.senderPK || payload.payerWallet || payload.walletAddress || customer.walletAddress),
     renewalDate: cleanIsoDate(payload.renewalDate || payload.data?.renewalDate || subscription.renewalDate || payload.currentPeriodEnd || payload.expiresAt),
@@ -1260,6 +1379,11 @@ async function activeSubscription(env, userId) {
     return emptySubscription(latestMoonPay);
   }
 
+  const cancellation = await activeRenewalCancellation(env, userId, row);
+  const renewalStatus = cancellation
+    ? "cancelled"
+    : latestMoonPay?.status || (row.source === "moonpay" ? "active" : row.status);
+
   return {
     tier: Number(row.tier),
     status: row.status,
@@ -1269,14 +1393,18 @@ async function activeSubscription(env, userId) {
     canReadLocked: Number(row.tier) >= 1,
     canLaunchBuilds: Number(row.tier) >= 2,
     paymentSource: row.source,
-    renewalStatus: latestMoonPay?.status || (row.source === "moonpay" ? "active" : row.status),
+    renewalStatus,
+    cancelAtPeriodEnd: Boolean(cancellation),
+    cancellationRequestedAt: cancellation?.created_at || null,
+    cancellationEffectiveAt: cancellation?.effective_at || row.expires_at || null,
     moonpayTier: latestMoonPay ? Number(latestMoonPay.tier || 0) : 0,
     moonpaySubscriptionId: latestMoonPay?.moonpay_subscription_id || null,
     moonpayCustomerEmail: latestMoonPay?.customer_email || null,
     moonpayPayerWallet: latestMoonPay?.payer_wallet || null,
     moonpayRenewalDate: latestMoonPay?.renewal_date || null,
     scheduledDowngrade: scheduledDowngrade ? publicScheduledSubscription(scheduledDowngrade) : null,
-    canCancelRenewal: false,
+    canCancelRenewal: row.source === "moonpay" && !cancellation,
+    canResumeRenewal: row.source === "moonpay" && Boolean(cancellation),
   };
 }
 
@@ -1334,7 +1462,7 @@ async function currentEffectiveSubscriptionRow(env, userId) {
   const now = new Date().toISOString();
 
   return env.DB.prepare(
-    `SELECT tier, status, source, starts_at, expires_at
+    `SELECT id, tier, status, source, starts_at, expires_at
      FROM subscriptions
      WHERE user_id = ? AND status = 'active' AND starts_at <= ? AND expires_at > ?
      ORDER BY tier DESC, expires_at DESC
@@ -1347,7 +1475,7 @@ async function notExpiredSubscriptionForTier(env, userId, tier) {
   const now = new Date().toISOString();
 
   return env.DB.prepare(
-    `SELECT tier, status, source, starts_at, expires_at
+    `SELECT id, tier, status, source, starts_at, expires_at
      FROM subscriptions
      WHERE user_id = ? AND tier = ? AND status = 'active' AND expires_at > ?
      ORDER BY starts_at DESC, expires_at DESC
@@ -1360,7 +1488,7 @@ async function activeBlockingSubscriptionForTier(env, userId, tier) {
   const now = new Date().toISOString();
 
   return env.DB.prepare(
-    `SELECT tier, status, source, starts_at, expires_at
+    `SELECT id, tier, status, source, starts_at, expires_at
      FROM subscriptions
      WHERE user_id = ? AND status = 'active' AND starts_at <= ? AND expires_at > ? AND tier >= ?
      ORDER BY tier DESC, expires_at DESC
@@ -1391,6 +1519,99 @@ async function revokeScheduledLowerTierAccess(env, userId, keepTier, now = new D
   ).bind(now, userId, now, now, keepTier).run();
 
   return Number(result?.meta?.changes || result?.changes || 0);
+}
+
+
+async function activeRenewalCancellation(env, userId, accessRow) {
+  if (!env.DB || !accessRow?.id) return null;
+
+  try {
+    return await env.DB.prepare(
+      `SELECT id, subscription_id, moonpay_subscription_id, tier, action, status, effective_at, created_at
+       FROM subscription_controls
+       WHERE user_id = ? AND action = 'cancel_renewal' AND status = 'active'
+         AND (subscription_id = ? OR (subscription_id IS NULL AND tier = ?))
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    ).bind(userId, accessRow.id, Number(accessRow.tier || 0)).first();
+  } catch (error) {
+    if (isMissingSchemaError(error, ["subscription_controls"])) return null;
+    throw error;
+  }
+}
+
+async function insertSubscriptionControl(env, { userId, subscriptionId = null, moonpaySubscriptionId = null, tier = null, action, status = "active", effectiveAt = null, rawPayload = {}, now = new Date().toISOString() }) {
+  return env.DB.prepare(
+    `INSERT INTO subscription_controls
+      (id, user_id, subscription_id, moonpay_subscription_id, tier, action, status, effective_at, created_at, updated_at, raw_payload)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    randomId(),
+    userId,
+    subscriptionId,
+    moonpaySubscriptionId,
+    tier ? Number(tier) : null,
+    action,
+    status,
+    effectiveAt,
+    now,
+    now,
+    JSON.stringify(rawPayload || {}),
+  ).run();
+}
+
+async function supersedeActiveLowerTierAccess(env, userId, newTier, now, details = {}, payload = {}) {
+  const rows = await env.DB.prepare(
+    `SELECT id, tier, source, starts_at, expires_at
+     FROM subscriptions
+     WHERE user_id = ? AND status = 'active' AND starts_at <= ? AND expires_at > ? AND tier < ?
+     ORDER BY tier DESC, expires_at DESC`,
+  ).bind(userId, now, now, Number(newTier || 0)).all();
+
+  const lowerAccess = rows?.results || [];
+  if (!lowerAccess.length) return 0;
+
+  for (const row of lowerAccess) {
+    await env.DB.prepare(
+      "UPDATE subscriptions SET status = 'revoked', updated_at = ? WHERE id = ? AND status = 'active'",
+    ).bind(now, row.id).run();
+
+    try {
+      const latestLowerMoonPay = row.source === "moonpay"
+        ? await latestMoonPaySubscription(env, userId, Number(row.tier || 0))
+        : null;
+
+      await insertSubscriptionControl(env, {
+        userId,
+        subscriptionId: row.id,
+        moonpaySubscriptionId: latestLowerMoonPay?.moonpay_subscription_id || null,
+        tier: Number(row.tier || 0),
+        action: "superseded_by_upgrade",
+        status: "completed",
+        effectiveAt: now,
+        rawPayload: {
+          newTier: Number(newTier || 0),
+          newMoonPaySubscriptionId: moonPaySubscriptionRecordId(details) || null,
+          checkoutSessionId: details.checkoutSessionId || null,
+          originalExpiresAt: row.expires_at || null,
+          payloadEvent: moonPayEventType(payload) || null,
+        },
+        now,
+      });
+
+      if (latestLowerMoonPay?.moonpay_subscription_id) {
+        await env.DB.prepare(
+          `UPDATE moonpay_subscriptions
+           SET status = 'cancelled', updated_at = ?
+           WHERE user_id = ? AND moonpay_subscription_id = ? AND status IN ('pending', 'active', 'renewed')`,
+        ).bind(now, userId, latestLowerMoonPay.moonpay_subscription_id).run();
+      }
+    } catch (error) {
+      if (!isMissingSchemaError(error, ["subscription_controls"])) throw error;
+    }
+  }
+
+  return lowerAccess.length;
 }
 
 function publicScheduledSubscription(row) {
@@ -1456,7 +1677,11 @@ function emptySubscription(latestMoonPay = null) {
     moonpayPayerWallet: latestMoonPay?.payer_wallet || null,
     moonpayRenewalDate: latestMoonPay?.renewal_date || null,
     scheduledDowngrade: null,
+    cancelAtPeriodEnd: false,
+    cancellationRequestedAt: null,
+    cancellationEffectiveAt: null,
     canCancelRenewal: false,
+    canResumeRenewal: false,
   };
 }
 
@@ -1490,7 +1715,14 @@ function isMissingSchemaError(error, tableNames = []) {
 
 function moonPayMigrationMissingResponse() {
   return json(
-    { error: "MoonPay Commerce database migration is missing. Apply db/migrations/0004_moonpay_subscriptions.sql or 0005_moonpay_commerce_compat.sql." },
+    { error: "MoonPay Commerce database migration is missing. Apply db/migrations/0004_moonpay_subscriptions.sql, 0005_moonpay_commerce_compat.sql, and 0007_subscription_controls.sql." },
+    { status: 503 },
+  );
+}
+
+function subscriptionControlsMigrationMissingResponse() {
+  return json(
+    { error: "Subscription controls migration is missing. Apply db/migrations/0007_subscription_controls.sql." },
     { status: 503 },
   );
 }
