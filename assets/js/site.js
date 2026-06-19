@@ -4,6 +4,7 @@
   let authBusy = false;
   let logoutBusy = false;
   let communityChatLoader = null;
+  let adminPanelLoader = null;
 
   const guestAccount = () => ({
     authenticated: false,
@@ -182,12 +183,16 @@
     setText("[data-account-likes]", String(account.stats?.likes || 0));
     setText("[data-account-chat]", String(account.stats?.chatMessages || 0));
 
+    const canManageAdmin = Boolean(account.permissions?.canManagePosts || account.permissions?.canManageUsers);
     document.querySelectorAll("[data-admin-only]").forEach((item) => {
-      item.hidden = !account.permissions?.canManagePosts && !account.permissions?.canManageUsers;
+      item.hidden = !canManageAdmin;
     });
     document.querySelectorAll("[data-moderator-only]").forEach((item) => {
       item.hidden = !account.permissions?.canModerate;
     });
+    if (canManageAdmin && adminPanelLoader) {
+      adminPanelLoader();
+    }
 
     const profileForm = document.querySelector("[data-profile-form]");
     if (profileForm && !profileForm.dataset.loaded) {
@@ -1060,21 +1065,28 @@
     const message = document.querySelector("[data-admin-message]");
     const form = document.querySelector("[data-admin-post-form]");
     const mediaBox = document.querySelector("[data-media-fields]");
+    let adminLoaded = false;
+    let adminLoading = false;
 
     const loadAdmin = async () => {
+      if (!currentAccountCache?.permissions?.canManagePosts) return;
+      if (adminLoading) return;
+      adminLoading = true;
+      panel.hidden = false;
+      if (message && !adminLoaded) message.textContent = "Loading admin panel...";
       try {
-        const [posts, users] = await Promise.all([
-          api("/api/posts?scope=all"),
-          api("/api/admin/users"),
-        ]);
+        const posts = await api("/api/posts?scope=all");
         renderAdminPosts(posts.posts || []);
-        renderAdminUsers(users.users || []);
+        adminLoaded = true;
         if (message) message.textContent = "Admin panel loaded.";
       } catch (error) {
-        panel.hidden = true;
         if (message) message.textContent = error.message || "Admin access is not available.";
+      } finally {
+        adminLoading = false;
       }
     };
+
+    adminPanelLoader = loadAdmin;
 
     if (mediaBox && !mediaBox.children.length) mediaBox.innerHTML = mediaFieldMarkup();
 
@@ -1098,28 +1110,12 @@
         deleteButton.disabled = true;
         try {
           await api(`/api/posts/${encodeURIComponent(deleteButton.dataset.adminDeletePost)}`, { method: "DELETE" });
+          adminLoaded = false;
           await loadAdmin();
           if (message) message.textContent = "Post deleted.";
         } catch (error) {
           deleteButton.disabled = false;
           if (message) message.textContent = error.message || "Could not delete post.";
-        }
-      }
-
-      const roleButton = event.target.closest("[data-save-role]");
-      if (roleButton) {
-        const select = document.querySelector(`[data-role-select="${CSS.escape(roleButton.dataset.saveRole)}"]`);
-        roleButton.disabled = true;
-        try {
-          const users = await api(`/api/admin/users/${encodeURIComponent(roleButton.dataset.saveRole)}`, {
-            method: "PUT",
-            body: JSON.stringify({ role: select?.value || "member" }),
-          });
-          renderAdminUsers(users.users || []);
-          if (message) message.textContent = "Role updated.";
-        } catch (error) {
-          roleButton.disabled = false;
-          if (message) message.textContent = error.message || "Could not update role.";
         }
       }
 
@@ -1152,6 +1148,7 @@
             body: JSON.stringify(payload),
           });
           fillPostForm(form, data.post);
+          adminLoaded = false;
           await loadAdmin();
           if (message) message.textContent = editingSlug ? "Post saved." : "Post created.";
         } catch (error) {
@@ -1160,7 +1157,9 @@
       });
     }
 
-    await loadAdmin();
+    if (currentAccountCache?.permissions?.canManagePosts) {
+      await loadAdmin();
+    }
   };
 
   const initProfileToggle = () => {

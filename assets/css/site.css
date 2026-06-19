@@ -2442,3 +2442,83 @@ button {
     align-self: stretch;
   }
 }
+
+/* Final production cleanup: admin-only text removal and stable membership cards. */
+.membership-tiers {
+  grid-template-columns: minmax(0, 390px) minmax(0, 410px) !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 56px !important;
+  padding: 28px 0 34px !important;
+}
+
+.membership-tiers #tier-1,
+.membership-tiers #tier-2 {
+  width: 100% !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  transform: none !important;
+  align-self: center !important;
+}
+
+.membership-tiers #tier-1 .tile-image {
+  aspect-ratio: 460 / 190 !important;
+  min-height: 0 !important;
+}
+
+.membership-tiers #tier-2 .tile-image {
+  aspect-ratio: 460 / 200 !important;
+  min-height: 0 !important;
+}
+
+.membership-tiers #tier-1 .post-body {
+  padding: 22px !important;
+}
+
+.membership-tiers #tier-2 .post-body {
+  padding: 24px !important;
+}
+
+.membership-tiers #tier-1 .post-title_2 {
+  font-size: 22px !important;
+  line-height: 1.14 !important;
+}
+
+.membership-tiers #tier-2 .post-title_2 {
+  font-size: 23px !important;
+  line-height: 1.13 !important;
+}
+
+.membership-tiers #tier-1 .tier-price {
+  font-size: 30px !important;
+}
+
+.membership-tiers #tier-2 .tier-price {
+  font-size: 32px !important;
+}
+
+.membership-tiers #tier-1 .btn,
+.membership-tiers #tier-2 .btn {
+  min-height: 44px !important;
+  font-size: 13px !important;
+}
+
+.membership-tiers #tier-1 .text,
+.membership-tiers #tier-2 .text {
+  font-size: 13px !important;
+  line-height: 1.52 !important;
+}
+
+@media (max-width: 980px) {
+  .membership-tiers {
+    grid-template-columns: minmax(0, 1fr) !important;
+    align-items: stretch !important;
+    gap: 24px !important;
+    padding-top: 20px !important;
+  }
+
+  .membership-tiers #tier-1,
+  .membership-tiers #tier-2 {
+    align-self: stretch !important;
+  }
+}
