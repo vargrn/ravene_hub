@@ -385,7 +385,7 @@
         window.helioCheckout(container, {
           paylinkId: session.paylinkId || plan.paylinkId,
           network: session.network || config.network || "test",
-          paymentType: session.paymentType || config.paymentType || "paystream",
+          paymentType: "paylink",
           primaryPaymentMethod: session.primaryPaymentMethod || config.primaryPaymentMethod || "crypto",
           display: "button",
           theme: { themeMode: "dark" },

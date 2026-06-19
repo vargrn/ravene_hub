@@ -953,7 +953,7 @@ function moonPayConfig(env) {
   const rawMode = String(env.MOONPAY_MODE || env.HELIO_MODE || "test").trim().toLowerCase();
   const mode = MOONPAY_ALLOWED_MODES.has(rawMode) ? rawMode : "test";
   const network = cleanMoonPayNetwork(env.MOONPAY_NETWORK || env.HELIO_NETWORK) || (mode === "live" ? "main" : "test");
-  const paymentType = String(env.MOONPAY_PAYMENT_TYPE || env.HELIO_PAYMENT_TYPE || "paystream").trim() === "paylink" ? "paylink" : "paystream";
+  const paymentType = "paylink";
   const primaryPaymentMethod = String(env.MOONPAY_PRIMARY_PAYMENT_METHOD || env.HELIO_PRIMARY_PAYMENT_METHOD || "crypto").trim() === "fiat" ? "fiat" : "crypto";
 
   return {
