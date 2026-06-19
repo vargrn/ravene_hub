@@ -79,7 +79,6 @@
     const subscriptionMessage = document.querySelector("[data-subscription-message]");
     const cancelRenewalButton = document.querySelector("[data-cancel-renewal-button]");
     const resumeRenewalButton = document.querySelector("[data-resume-renewal-button]");
-    setAuthNavVisible(Boolean(account.authenticated));
     setGuestOnlyVisible(!account.authenticated);
     if (!panel) return;
 
@@ -90,7 +89,7 @@
       setAuthOnlyVisible(false);
       setGuestOnlyVisible(true);
       setText("[data-account-state]", "Setup required");
-      setText("[data-account-summary]", "The account database is not connected yet. Hosting needs the DB binding and migration.");
+      setText("[data-account-summary]", "Account service is temporarily unavailable. Please try again after the current site update is applied.");
       if (renewalNote) renewalNote.hidden = true;
       if (cancelRenewalButton) cancelRenewalButton.hidden = true;
       if (resumeRenewalButton) resumeRenewalButton.hidden = true;
@@ -235,7 +234,7 @@
   }[role] || "Member");
 
   const initAccount = async () => {
-    if (!document.querySelector("[data-account-panel], [data-auth-nav]")) return;
+    if (!document.querySelector("[data-account-panel]")) return;
 
     try {
       currentAccountCache = await api("/api/me");
@@ -526,7 +525,7 @@
             fallback.textContent = error.code === "tier_already_active" ? "Current membership" : "Unavailable";
           }
           container.hidden = true;
-          setTierMessage(tier, error.message || "MoonPay Commerce could not prepare this membership tier.");
+          setTierMessage(tier, "Membership checkout is temporarily unavailable. Please try again after the site update is fully deployed.");
           return;
         }
 
@@ -588,8 +587,8 @@
       containers.forEach((container) => {
         const tier = container.dataset.moonpayWidget;
         container.hidden = true;
-        setJoinButton(tier, "notice", error.message || "MoonPay Commerce is not available yet.");
-        setTierMessage(tier, error.message || "MoonPay Commerce is not available yet.");
+        setJoinButton(tier, "notice", "Membership checkout is temporarily unavailable.");
+        setTierMessage(tier, "Membership checkout is temporarily unavailable. Please try again after the site update is fully deployed.");
       });
     }
   };
@@ -753,27 +752,6 @@
 
     await loadComments();
   };
-
-  const fallbackPosts = [
-    {
-      title: "Alternative system for Early Access verification",
-      category: "Development",
-      publishedAt: "2026-05-22",
-      visibility: "public",
-      coverUrl: "assets/media/posts/biopunk-duo.webp",
-      excerpt: "Project updates, build notes, and access features are moving into the browser hub and Mini App infrastructure.",
-      slug: "alternative-system",
-      likeCount: 1,
-      commentCount: 0,
-      staticHref: "post-alternative-system.html",
-    },
-  ];
-
-  const fallbackPinnedPosts = [
-    { title: "BioPunk hub", category: "Pinned", excerpt: "This site is the browser-side surface for posts, builds, account access, and future private content.", staticHref: "account.html" },
-    { title: "Tier check", category: "Pinned", excerpt: "Launching an EA build uses the current browser account and checks whether Tier 2 access is active.", staticHref: "builds.html" },
-    { title: "Telegram bridge", category: "Pinned", excerpt: "The Mini App remains a companion entrance for synchronized access and community features.", staticHref: "https://biopunk-mini-app.pages.dev/" },
-  ];
 
   const renderPostCard = (post, featured = false) => `
     <a class="latest-post ${featured ? "" : "latest-post-compact"}" href="${escapeHTML(postHref(post))}">
