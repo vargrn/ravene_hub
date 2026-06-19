@@ -2190,3 +2190,153 @@ button {
 .collapsible-card[open] .collapse-hint-text {
   font-size: 13px;
 }
+
+
+/* Account production cleanup: profile settings live inside the account panel. */
+.account-profile-form {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.account-profile-form .btn {
+  width: 100%;
+}
+
+/* Chat panel: single-column heading, shared copy, and custom visual background. */
+.community-chat {
+  background:
+    linear-gradient(180deg, rgba(4, 7, 13, 0.42), rgba(4, 7, 13, 0.88)),
+    linear-gradient(90deg, rgba(4, 7, 13, 0.52), rgba(4, 7, 13, 0.18)),
+    url("../media/chat/back_chat.png") center bottom / cover no-repeat,
+    linear-gradient(180deg, rgba(12, 16, 24, 0.90), rgba(7, 10, 16, 0.78));
+}
+
+.community-chat .section-line {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: start;
+  justify-content: start;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.community-chat .section-line h2 {
+  max-width: none;
+}
+
+.community-chat .section-line .form-note {
+  max-width: 260px;
+  color: var(--text-soft);
+}
+
+.community-chat .chat-list,
+.community-chat .comment-form {
+  position: relative;
+  z-index: 1;
+}
+
+.community-chat .chat-message-body {
+  background: rgba(12, 16, 24, 0.70);
+  backdrop-filter: blur(6px);
+  border-radius: 0;
+}
+
+.community-chat .chat-message.is-own .chat-message-body {
+  background: rgba(25, 30, 40, 0.78);
+}
+
+.community-chat .comment-form textarea {
+  background: rgba(4, 7, 13, 0.72);
+}
+
+/* Membership checkout buttons: light, square, readable. */
+.membership-tiers .btn,
+.membership-tiers .moonpay-widget button,
+.membership-tiers .moonpay-widget [role="button"],
+.membership-tiers .moonpay-widget a,
+.membership-tiers .moonpay-widget div[role="button"] {
+  border-radius: 0 !important;
+  border-color: rgba(255, 255, 255, 0.55) !important;
+  background: linear-gradient(180deg, #f4f6f8, #cbd1d9) !important;
+  color: #07090d !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 14px 32px rgba(0, 0, 0, 0.22) !important;
+}
+
+.membership-tiers .btn:hover,
+.membership-tiers .moonpay-widget button:hover,
+.membership-tiers .moonpay-widget [role="button"]:hover,
+.membership-tiers .moonpay-widget a:hover,
+.membership-tiers .moonpay-widget div[role="button"]:hover {
+  background: linear-gradient(180deg, #ffffff, #d6dce5) !important;
+  color: #05070a !important;
+}
+
+.membership-tiers .moonpay-widget,
+.membership-tiers .moonpay-widget * {
+  border-radius: 0 !important;
+}
+
+.membership-tiers .moonpay-widget iframe {
+  border-radius: 0 !important;
+}
+
+/* Featured tier: make Tier 2 visibly larger in all dimensions, not just wider. */
+.membership-tiers {
+  grid-template-columns: minmax(0, 390px) minmax(0, 390px);
+  gap: 70px;
+  align-items: start;
+  padding-top: 36px;
+}
+
+.membership-tiers #tier-2 {
+  width: 100%;
+  min-height: 575px;
+  margin-top: 0;
+  transform: scale(1.07);
+  transform-origin: top center;
+  z-index: 2;
+}
+
+.membership-tiers #tier-2 .tile-image {
+  aspect-ratio: 460 / 215;
+  min-height: 215px;
+}
+
+.membership-tiers #tier-2 .post-body {
+  padding: 28px;
+}
+
+.membership-tiers #tier-2 .post-title_2 {
+  font-size: 25px;
+  line-height: 1.10;
+}
+
+.membership-tiers #tier-2 .tier-price {
+  font-size: 36px;
+}
+
+.membership-tiers #tier-2 .btn {
+  min-height: 50px;
+  font-size: 14px;
+}
+
+.membership-tiers #tier-2 .text {
+  font-size: 14px;
+  line-height: 1.58;
+}
+
+@media (max-width: 980px) {
+  .membership-tiers {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+    padding-top: 20px;
+  }
+
+  .membership-tiers #tier-2 {
+    transform: none;
+    min-height: 0;
+  }
+}

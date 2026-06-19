@@ -130,6 +130,8 @@
       if (renewalNote) renewalNote.hidden = true;
       if (cancelRenewalButton) cancelRenewalButton.hidden = true;
       if (resumeRenewalButton) resumeRenewalButton.hidden = true;
+      const profileForm = document.querySelector("[data-profile-form]");
+      if (profileForm) profileForm.hidden = true;
       return;
     }
 
@@ -148,6 +150,8 @@
       if (renewalNote) renewalNote.hidden = true;
       if (cancelRenewalButton) cancelRenewalButton.hidden = true;
       if (resumeRenewalButton) resumeRenewalButton.hidden = true;
+      const profileForm = document.querySelector("[data-profile-form]");
+      if (profileForm) profileForm.hidden = true;
       document.querySelectorAll("[data-auth-gate], [data-auth-trigger]").forEach((item) => {
         item.hidden = false;
       });
@@ -1159,6 +1163,16 @@
     await loadAdmin();
   };
 
+  const initProfileToggle = () => {
+    const button = document.querySelector("[data-profile-toggle]");
+    const form = document.querySelector("[data-profile-form]");
+    if (!button || !form) return;
+
+    button.addEventListener("click", () => {
+      form.hidden = !form.hidden;
+    });
+  };
+
   const initProfileForm = () => {
     const form = document.querySelector("[data-profile-form]");
     if (!form) return;
@@ -1214,7 +1228,7 @@
       try {
         const data = await api("/api/community/chat");
         renderChatMessages(data.messages || []);
-        if (message) message.textContent = "Shared chat for registered users.";
+        if (message) message.textContent = "Shared for all users. Yes, the author also sees this chat.";
       } catch (error) {
         if (message) message.textContent = error.message || "Chat is temporarily unavailable.";
       }
@@ -1232,7 +1246,7 @@
           const data = await api("/api/community/chat", { method: "POST", body: JSON.stringify({ body }) });
           form.reset();
           renderChatMessages(data.messages || []);
-          if (message) message.textContent = "Message sent.";
+          if (message) message.textContent = "Shared for all users. Yes, the author also sees this chat.";
         } catch (error) {
           if (message) message.textContent = error.message || "Could not send message.";
         }
@@ -1246,7 +1260,7 @@
       try {
         const data = await api(`/api/community/chat/${encodeURIComponent(button.dataset.deleteChat)}`, { method: "DELETE" });
         renderChatMessages(data.messages || []);
-        if (message) message.textContent = "Message deleted.";
+        if (message) message.textContent = "Shared for all users. Yes, the author also sees this chat.";
       } catch (error) {
         button.disabled = false;
         if (message) message.textContent = error.message || "Could not delete message.";
@@ -1299,6 +1313,7 @@
   initRenewalControls();
   initBuildLaunch();
   initMoonPaySubscriptions();
+  initProfileToggle();
   initProfileForm();
   initAdminPanel();
   initPostFeeds();

@@ -61,17 +61,11 @@
               <button class="btn" type="submit">Create account</button>
               <p class="form-note" data-auth-message="register">Registration creates the same account used for access tiers and Early Access check.</p>
             </form>
-            <div class="account-actions">
+            <div class="account-actions" data-auth-only hidden>
               <button class="btn btn-secondary" type="button" data-logout-button hidden>Log out</button>
+              <button class="btn btn-secondary" type="button" data-profile-toggle>Settings</button>
             </div>
-          </article>
-
-          <details class="glass card collapsible-card" data-auth-only hidden>
-            <summary aria-label="Open profile settings">
-              <span class="collapsible-title"><span class="meta"><span>Profile</span><span>Public account card</span></span><strong>Profile information</strong></span>
-              <span class="collapse-hint" aria-hidden="true"><span class="collapse-hint-text">Settings</span></span>
-            </summary>
-            <form class="connect-form profile-form" data-profile-form>
+            <form class="connect-form profile-form account-profile-form" data-profile-form hidden>
               <div class="form-grid-2">
                 <label>Display name<input name="displayName" type="text" placeholder="Display name" /></label>
                 <label>Avatar URL<input name="avatarUrl" type="text" placeholder="assets/media/profile/avatar.webp or https://..." /></label>
@@ -79,7 +73,7 @@
               <button class="btn" type="submit">Save profile</button>
               <p class="form-note" data-profile-message>Profile data is attached to the Ravene Hub account.</p>
             </form>
-          </details>
+          </article>
 
           <article class="glass card" data-admin-only hidden>
             <div class="meta"><span>Activity</span></div>
@@ -150,7 +144,7 @@
             <p class="text">Ability to send the author coffee and cat food.</p>
           </section>
           <section class="glass card community-chat" data-auth-only data-community-chat hidden>
-            <div class="section-line"><h2>General chat</h2><span class="form-note" data-chat-message>Login is required for chat.</span></div>
+            <div class="section-line"><h2>General chat</h2><span class="form-note" data-chat-message>Shared for all users. Yes, the author also sees this chat.</span></div>
             <div class="chat-list" data-chat-list><p class="form-note">Loading chat...</p></div>
             <form class="comment-form" data-chat-form>
               <textarea name="body" rows="4" maxlength="1200" placeholder="Write a message..."></textarea>
