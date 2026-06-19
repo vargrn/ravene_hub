@@ -2720,12 +2720,14 @@ background-size: cover;
 }
 
 
-/* Home cards: title only, lifted upward */
+/* Home cards: title only, anchored lower */
 .home-card-grid .home-link-card {
-  align-content: start;
-  padding-top: 28px;
+  align-content: end;
+  padding-top: 24px;
+  padding-bottom: 18px;
 }
 
 .home-card-grid .home-link-card h3 {
   margin-top: 0;
+  margin-bottom: 0;
 }
