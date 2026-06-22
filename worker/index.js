@@ -555,6 +555,9 @@ async function listHubPosts(request, env, url) {
   const scope = url.searchParams.get("scope") || "published";
   const includeAll = canManage && scope === "all";
   const pinnedOnly = url.searchParams.get("pinned") === "1";
+  const orderBy = pinnedOnly
+    ? "pinned_at DESC, COALESCE(created_at, published_at, updated_at) DESC"
+    : "COALESCE(created_at, published_at, updated_at) DESC";
   const rows = await env.DB.prepare(
     `SELECT hub_posts.*,
        (SELECT COUNT(*) FROM post_likes WHERE post_likes.post_id = hub_posts.id) AS like_count,
@@ -563,7 +566,7 @@ async function listHubPosts(request, env, url) {
      WHERE deleted_at IS NULL
        AND (? = 1 OR status = 'published')
        AND (? = 0 OR pinned_at IS NOT NULL)
-     ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END, pinned_at DESC, COALESCE(published_at, created_at) DESC
+     ORDER BY ${orderBy}
      LIMIT 80`,
   ).bind(includeAll ? 1 : 0, pinnedOnly ? 1 : 0).all();
 
@@ -653,7 +656,9 @@ async function updateHubPost(request, env, slug) {
     if (conflict) return json({ error: "Post slug is already used" }, { status: 409 });
   }
 
-  const publishedAt = nextStatus === "published" ? (existing.published_at || now) : null;
+  const isPublishingNow = existing.status !== "published" && nextStatus === "published";
+  const stablePublishedAt = existing.published_at || (!isPublishingNow ? (existing.created_at || existing.updated_at) : null) || now;
+  const publishedAt = nextStatus === "published" ? stablePublishedAt : null;
   const pinnedAt = body.pinned ? (existing.pinned_at || now) : null;
   await env.DB.prepare(
     `UPDATE hub_posts
