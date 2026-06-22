@@ -85,6 +85,69 @@
     });
   };
 
+  const adminWorkspaceDefaults = { posts: true, chat: true };
+  const adminWorkspaceStorageKey = "ravene:admin-workspace-panels";
+
+  const readAdminWorkspaceState = () => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(adminWorkspaceStorageKey) || "{}");
+      return {
+        posts: parsed.posts !== false,
+        chat: parsed.chat !== false,
+      };
+    } catch {
+      return { ...adminWorkspaceDefaults };
+    }
+  };
+
+  const writeAdminWorkspaceState = (state) => {
+    try {
+      localStorage.setItem(adminWorkspaceStorageKey, JSON.stringify({
+        posts: state.posts !== false,
+        chat: state.chat !== false,
+      }));
+    } catch {
+      /* Ignore private browsing storage errors. */
+    }
+  };
+
+  const applyAdminWorkspaceState = () => {
+    const state = readAdminWorkspaceState();
+    const postsPanel = document.querySelector("[data-admin-panel]");
+    const chatPanel = document.querySelector("[data-admin-chat-panel]");
+    if (postsPanel) postsPanel.hidden = !state.posts;
+    if (chatPanel) chatPanel.hidden = !state.chat;
+    document.querySelectorAll("[data-admin-panel-toggle]").forEach((button) => {
+      const key = button.dataset.adminPanelToggle;
+      const visible = state[key] !== false;
+      button.classList.toggle("is-active", visible);
+      button.setAttribute("aria-pressed", visible ? "true" : "false");
+      const stateLabel = document.querySelector(`[data-admin-panel-toggle-state="${CSS.escape(key)}"]`);
+      if (stateLabel) stateLabel.textContent = visible ? "Shown" : "Hidden";
+    });
+    return state;
+  };
+
+  const setAdminWorkspacePanel = (key, visible) => {
+    const state = readAdminWorkspaceState();
+    state[key] = Boolean(visible);
+    writeAdminWorkspaceState(state);
+    applyAdminWorkspaceState();
+    if (key === "posts" && state.posts && adminPanelLoader) adminPanelLoader();
+    if (key === "chat" && state.chat && adminChatModerationLoader) adminChatModerationLoader();
+  };
+
+  const initAdminWorkspaceControls = () => {
+    document.querySelectorAll("[data-admin-panel-toggle]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.adminPanelToggle;
+        const state = readAdminWorkspaceState();
+        setAdminWorkspacePanel(key, state[key] === false);
+      });
+    });
+    applyAdminWorkspaceState();
+  };
+
   const loadScriptOnce = (src, id, globalReady = () => true) => new Promise((resolve, reject) => {
     const finish = () => {
       if (globalReady()) {
@@ -188,10 +251,11 @@
     document.querySelectorAll("[data-moderator-only]").forEach((item) => {
       item.hidden = !account.permissions?.canModerate;
     });
-    if (canManageAdmin && adminPanelLoader) {
+    const adminWorkspaceState = canManageAdmin ? applyAdminWorkspaceState() : adminWorkspaceDefaults;
+    if (canManageAdmin && adminWorkspaceState.posts && adminPanelLoader) {
       adminPanelLoader();
     }
-    if (canManageAdmin && adminChatModerationLoader) {
+    if (canManageAdmin && adminWorkspaceState.chat && adminChatModerationLoader) {
       adminChatModerationLoader();
     }
 
@@ -1096,6 +1160,8 @@
 
     const loadAdmin = async () => {
       if (!currentAccountCache?.permissions?.canManagePosts) return;
+      const adminWorkspaceState = applyAdminWorkspaceState();
+      if (!adminWorkspaceState.posts) return;
       if (adminLoading) return;
       adminLoading = true;
       panel.hidden = false;
@@ -1183,7 +1249,7 @@
       });
     }
 
-    if (currentAccountCache?.permissions?.canManagePosts) {
+    if (currentAccountCache?.permissions?.canManagePosts && readAdminWorkspaceState().posts) {
       await loadAdmin();
     }
   };
@@ -1227,6 +1293,8 @@
 
     const loadQueue = async () => {
       if (!currentAccountCache?.permissions?.canManagePosts) return;
+      const adminWorkspaceState = applyAdminWorkspaceState();
+      if (!adminWorkspaceState.chat) return;
       if (queueLoading) return;
       queueLoading = true;
       panel.hidden = false;
@@ -1313,7 +1381,7 @@
       }
     });
 
-    if (currentAccountCache?.permissions?.canManagePosts) {
+    if (currentAccountCache?.permissions?.canManagePosts && readAdminWorkspaceState().chat) {
       await loadQueue();
     }
   };
@@ -1654,6 +1722,7 @@
   initMoonPaySubscriptions();
   initProfileToggle();
   initProfileForm();
+  initAdminWorkspaceControls();
   initAdminPanel();
   initAdminChatModeration();
   initPostFeeds();

@@ -83,7 +83,20 @@
             </div>
           </article>
 
-
+          <article class="glass card admin-workspace-card" data-admin-controls data-admin-only hidden>
+            <div class="meta"><span>Admin workspace</span></div>
+            <h2>Control panels</h2>
+            <div class="admin-workspace-actions" role="group" aria-label="Admin panel visibility">
+              <button class="admin-workspace-toggle" type="button" data-admin-panel-toggle="posts" aria-controls="admin-posts" aria-pressed="true">
+                <span>Posts editor</span>
+                <small data-admin-panel-toggle-state="posts">Shown</small>
+              </button>
+              <button class="admin-workspace-toggle" type="button" data-admin-panel-toggle="chat" aria-controls="admin-chat-moderation" aria-pressed="true">
+                <span>Chat moderation</span>
+                <small data-admin-panel-toggle-state="chat">Shown</small>
+              </button>
+            </div>
+          </article>
 
         </section>
         <aside class="sidebar account-chat-sidebar">

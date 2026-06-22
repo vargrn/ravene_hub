@@ -3692,7 +3692,7 @@ background-size: cover;
 .chat-action-link {
   appearance: none;
   border: 0;
-  border-bottom: 1px dotted rgba(185, 195, 213, 0.55);
+  border-bottom: 0;
   border-radius: 0;
   padding: 0 0 2px;
   background: transparent;
@@ -3701,25 +3701,22 @@ background-size: cover;
   font-size: 12px;
   line-height: 1.2;
   cursor: pointer;
-  transition: color 160ms ease, border-color 160ms ease, opacity 160ms ease;
+  transition: color 160ms ease, opacity 160ms ease;
 }
 
 .chat-action-link:hover,
 .chat-action-link:focus-visible {
   color: var(--text);
-  border-color: rgba(232, 238, 248, 0.92);
   outline: none;
 }
 
 .chat-action-link.is-danger {
   color: rgba(207, 183, 183, 0.78);
-  border-color: rgba(255, 137, 128, 0.38);
 }
 
 .chat-action-link.is-danger:hover,
 .chat-action-link.is-danger:focus-visible {
   color: rgba(255, 219, 214, 0.98);
-  border-color: rgba(255, 137, 128, 0.74);
 }
 
 .chat-control-panel {
@@ -3886,5 +3883,198 @@ background-size: cover;
     gap: 8px;
     padding-left: 10px;
     padding-right: 10px;
+  }
+}
+
+/* FINAL 2026-06-22: admin workspace panel toggles. */
+.admin-workspace-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 164px;
+}
+
+.admin-workspace-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 92% 8%, rgba(184, 212, 255, 0.07), transparent 34%),
+    linear-gradient(120deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.006));
+  pointer-events: none;
+}
+
+.admin-workspace-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.admin-workspace-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.admin-workspace-toggle {
+  min-height: 68px;
+  padding: 14px 15px;
+  border: 1px solid rgba(232, 238, 248, 0.105);
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.01)),
+    rgba(4, 7, 13, 0.42);
+  color: var(--text-soft);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.admin-workspace-toggle:hover {
+  border-color: rgba(232, 238, 248, 0.20);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.014)),
+    rgba(4, 7, 13, 0.52);
+  transform: translateY(-1px);
+}
+
+.admin-workspace-toggle span {
+  display: block;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.admin-workspace-toggle small {
+  display: inline-block;
+  margin-top: 9px;
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-workspace-toggle.is-active {
+  border-color: rgba(184, 212, 255, 0.28);
+  box-shadow:
+    0 0 0 1px rgba(184, 212, 255, 0.06) inset,
+    0 12px 34px rgba(0, 0, 0, 0.18);
+}
+
+.admin-workspace-toggle.is-active small {
+  color: rgba(180, 226, 186, 0.92);
+}
+
+.admin-workspace-toggle:not(.is-active) {
+  opacity: 0.72;
+}
+
+@media (max-width: 640px) {
+  .admin-workspace-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* FINAL 2026-06-22: cleaner chat actions, calmer tier accent, non-stacked mobile header. */
+.chat-action-link,
+.chat-action-link:hover,
+.chat-action-link:focus-visible,
+.chat-action-link.is-danger,
+.chat-action-link.is-danger:hover,
+.chat-action-link.is-danger:focus-visible {
+  border-bottom: 0 !important;
+  text-decoration: none !important;
+}
+
+.chat-inline-actions {
+  gap: 14px !important;
+}
+
+.chat-action-link {
+  opacity: 0.78;
+}
+
+.chat-action-link:hover,
+.chat-action-link:focus-visible {
+  opacity: 1;
+}
+
+.membership-tiers #tier-2 {
+  border-color: rgba(214, 192, 143, 0.38) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(214, 192, 143, 0.07),
+    0 24px 70px rgba(0, 0, 0, 0.34) !important;
+}
+
+.membership-tiers #tier-2:hover {
+  border-color: rgba(214, 192, 143, 0.48) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(214, 192, 143, 0.10),
+    0 28px 76px rgba(0, 0, 0, 0.38) !important;
+}
+
+@media (max-width: 680px) {
+  :root {
+    --topbar-height: 71px;
+  }
+
+  .topbar-inner {
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    padding: 14px 16px !important;
+    overflow: hidden;
+  }
+
+  .brand {
+    width: auto !important;
+    min-width: 0 !important;
+    flex: 0 1 auto !important;
+    justify-content: flex-start !important;
+  }
+
+  .brand-mark {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+  }
+
+  .brand-name {
+    min-width: 0;
+  }
+
+  .brand-name strong {
+    font-size: 16px;
+    white-space: nowrap !important;
+  }
+
+  .nav {
+    display: flex !important;
+    width: auto !important;
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+    justify-content: flex-end !important;
+    gap: clamp(10px, 3vw, 16px) !important;
+    overflow-x: auto !important;
+    overscroll-behavior-x: contain;
+    padding: 0 0 2px !important;
+    font-size: 10px !important;
+    white-space: nowrap !important;
+  }
+
+  .nav a {
+    flex: 0 0 auto;
+    padding: 9px 0 !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .brand-name strong {
+    font-size: 14px;
+  }
+
+  .nav {
+    justify-content: flex-start !important;
   }
 }
