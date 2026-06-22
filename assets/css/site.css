@@ -3496,3 +3496,21 @@ background-size: cover;
     width: 100%;
   }
 }
+
+
+/* FINAL 2026-06-22: membership page polish. */
+.membership-tiers #tier-2 {
+  border-color: rgba(218, 178, 88, 0.82) !important;
+  box-shadow:
+    0 0 0 1px rgba(218, 178, 88, 0.22) inset,
+    0 24px 70px rgba(0, 0, 0, 0.34),
+    0 0 34px rgba(218, 178, 88, 0.10) !important;
+}
+
+.membership-tiers #tier-2:hover {
+  border-color: rgba(236, 198, 112, 0.96) !important;
+  box-shadow:
+    0 0 0 1px rgba(236, 198, 112, 0.30) inset,
+    0 28px 76px rgba(0, 0, 0, 0.38),
+    0 0 42px rgba(236, 198, 112, 0.14) !important;
+}
