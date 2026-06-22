@@ -6,6 +6,7 @@
   let communityChatLoader = null;
   let adminPanelLoader = null;
   let adminChatModerationLoader = null;
+  let chatMuteTimerInterval = null;
 
   const guestAccount = () => ({
     authenticated: false,
@@ -48,7 +49,10 @@
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(data.error || "Request failed");
+      const error = new Error(data.error || "Request failed");
+      error.status = response.status;
+      error.data = data;
+      throw error;
     }
     return data;
   };
@@ -1343,19 +1347,83 @@
     });
   };
 
+
+  const formatChatDuration = (totalSeconds) => {
+    const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const rest = seconds % 60;
+    if (hours > 0) return `${hours}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+    return `${minutes}:${String(rest).padStart(2, "0")}`;
+  };
+
+  const setChatComposerLocked = (locked) => {
+    const form = document.querySelector("[data-chat-form]");
+    if (!form) return;
+    form.querySelectorAll("textarea, button").forEach((item) => {
+      item.disabled = locked;
+    });
+  };
+
+  const renderChatMuteState = (chatState = {}) => {
+    const banner = document.querySelector("[data-chat-mute-banner]");
+    const timer = document.querySelector("[data-chat-mute-timer]");
+    if (chatMuteTimerInterval) {
+      clearInterval(chatMuteTimerInterval);
+      chatMuteTimerInterval = null;
+    }
+    if (!banner || !timer) return;
+
+    const mutedUntil = chatState?.mutedUntil ? new Date(chatState.mutedUntil).getTime() : 0;
+    const banned = Boolean(chatState?.banned);
+
+    const render = () => {
+      if (banned) {
+        banner.hidden = false;
+        banner.classList.add("is-banned");
+        timer.textContent = "restricted";
+        setChatComposerLocked(true);
+        return false;
+      }
+
+      const remaining = mutedUntil ? Math.ceil((mutedUntil - Date.now()) / 1000) : 0;
+      if (remaining > 0) {
+        banner.hidden = false;
+        banner.classList.remove("is-banned");
+        timer.textContent = formatChatDuration(remaining);
+        setChatComposerLocked(true);
+        return true;
+      }
+
+      banner.hidden = true;
+      banner.classList.remove("is-banned");
+      setChatComposerLocked(false);
+      return false;
+    };
+
+    if (render()) {
+      chatMuteTimerInterval = setInterval(() => {
+        if (!render()) {
+          clearInterval(chatMuteTimerInterval);
+          chatMuteTimerInterval = null;
+          if (communityChatLoader) communityChatLoader();
+        }
+      }, 1000);
+    }
+  };
+
   const chatLanguageOptions = ["English", "Russian", "Polish", "Korean", "Japanese"];
 
   const chatTranslateControls = (item, source = "message") => {
     if (!item.canTranslate) return "";
     const id = escapeHTML(item.id);
     return `
-      <div class="chat-tools">
-        <select data-chat-translate-language="${id}">
+      <div class="chat-control-group chat-translate-group">
+        <select aria-label="Translation language" data-chat-translate-language="${id}">
           ${chatLanguageOptions.map((language) => `<option value="${escapeHTML(language)}">${escapeHTML(language)}</option>`).join("")}
         </select>
         <button class="mini-btn" type="button" data-translate-chat="${id}" data-translate-source="${escapeHTML(source)}">Translate</button>
       </div>
-      <div class="chat-translation" data-chat-translation="${id}" hidden></div>
     `;
   };
 
@@ -1369,6 +1437,11 @@
     list.innerHTML = messages.map((item) => {
       const id = escapeHTML(item.id);
       const editedLabel = item.edited ? ` · edited` : "";
+      const actionControls = `
+        ${item.canEdit ? `<button class="mini-btn" type="button" data-edit-chat="${id}">Edit</button>` : ""}
+        ${item.canDelete ? `<button class="mini-btn danger" type="button" data-delete-chat="${id}">Delete</button>` : ""}
+        ${chatTranslateControls(item)}
+      `.trim();
       return `
         <article class="chat-message ${item.own ? "is-own" : ""}" data-chat-row="${id}">
           <img src="${escapeHTML(item.authorAvatar || "assets/media/profile/avatar.webp")}" alt="" />
@@ -1382,11 +1455,8 @@
                 <button class="mini-btn" type="button" data-cancel-chat-edit="${id}">Cancel</button>
               </div>
             </form>
-            <div class="chat-actions">
-              ${item.canEdit ? `<button class="mini-btn" type="button" data-edit-chat="${id}">Edit</button>` : ""}
-              ${item.canDelete ? `<button class="mini-btn danger" type="button" data-delete-chat="${id}">Delete</button>` : ""}
-            </div>
-            ${chatTranslateControls(item)}
+            ${actionControls ? `<div class="chat-control-panel">${actionControls}</div>` : ""}
+            <div class="chat-translation" data-chat-translation="${id}" hidden></div>
           </div>
         </article>
       `;
@@ -1404,6 +1474,7 @@
     const loadChat = async () => {
       if (!currentAccountCache?.authenticated) {
         renderChatMessages([]);
+        renderChatMuteState({});
         if (message) message.textContent = "Login is required for chat.";
         return;
       }
@@ -1411,6 +1482,7 @@
       try {
         const data = await api("/api/community/chat");
         renderChatMessages(data.messages || []);
+        renderChatMuteState(data.chatState || {});
         if (message) message.textContent = data.notice || "Shared for all users. Yes, the author also sees this chat.";
       } catch (error) {
         if (message) message.textContent = error.message || "Chat is temporarily unavailable.";
@@ -1429,8 +1501,10 @@
           const data = await api("/api/community/chat", { method: "POST", body: JSON.stringify({ body }) });
           form.reset();
           renderChatMessages(data.messages || []);
+          renderChatMuteState(data.chatState || {});
           if (message) message.textContent = data.notice || "Shared for all users. Yes, the author also sees this chat.";
         } catch (error) {
+          if (error.data?.chatState) renderChatMuteState(error.data.chatState);
           if (message) message.textContent = error.message || "Could not send message.";
         }
       });
@@ -1520,8 +1594,10 @@
           body: JSON.stringify({ body }),
         });
         renderChatMessages(data.messages || []);
+        renderChatMuteState(data.chatState || {});
         if (message) message.textContent = data.notice || "Message edited.";
       } catch (error) {
+        if (error.data?.chatState) renderChatMuteState(error.data.chatState);
         if (submitButton) submitButton.disabled = false;
         if (message) message.textContent = error.message || "Could not edit message.";
       }

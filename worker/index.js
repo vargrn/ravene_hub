@@ -924,6 +924,7 @@ async function ensureCommunityChatSchema(env) {
 async function listChatMessages(request, env) {
   const account = await currentAccount(request, env);
   if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+  const chatState = publicChatUserState(await chatUserState(env, account.user.id));
   const rows = await env.DB.prepare(
     `SELECT community_chat_messages.id, community_chat_messages.user_id, community_chat_messages.body, community_chat_messages.created_at,
             community_chat_messages.updated_at, community_chat_messages.edited_at, community_chat_messages.edit_count,
@@ -949,7 +950,7 @@ async function listChatMessages(request, env) {
     canEdit: row.user_id === account.user.id,
     canTranslate,
   }));
-  return json({ messages, canModerate: Boolean(account.permissions?.canModerate), canTranslate });
+  return json({ messages, canModerate: Boolean(account.permissions?.canModerate), canTranslate, chatState });
 }
 
 async function createChatMessage(request, env) {
@@ -962,7 +963,7 @@ async function createChatMessage(request, env) {
   const userState = await chatUserState(env, account.user.id);
   if (userState.bannedAt) return json({ error: "Chat access is restricted." }, { status: 403 });
   if (userState.mutedUntil && new Date(userState.mutedUntil).getTime() > Date.now()) {
-    return json({ error: "Chat is temporarily muted for this account." }, { status: 429 });
+    return json({ error: "Chat is temporarily muted for this account.", chatState: publicChatUserState(userState) }, { status: 429 });
   }
 
   const moderation = await moderateChatMessage(env, request, account, message);
@@ -995,7 +996,7 @@ async function editChatMessage(request, env, url) {
   const userState = await chatUserState(env, account.user.id);
   if (userState.bannedAt) return json({ error: "Chat access is restricted." }, { status: 403 });
   if (userState.mutedUntil && new Date(userState.mutedUntil).getTime() > Date.now()) {
-    return json({ error: "Chat is temporarily muted for this account." }, { status: 429 });
+    return json({ error: "Chat is temporarily muted for this account.", chatState: publicChatUserState(userState) }, { status: 429 });
   }
 
   const payload = await readJson(request);
@@ -1182,6 +1183,19 @@ async function chatUserState(env, userId) {
     mutedUntil: row?.muted_until || null,
     bannedAt: row?.banned_at || null,
     banReason: row?.ban_reason || null,
+  };
+}
+
+function publicChatUserState(state) {
+  const mutedUntilTime = state?.mutedUntil ? new Date(state.mutedUntil).getTime() : 0;
+  const mutedUntil = Number.isFinite(mutedUntilTime) && mutedUntilTime > Date.now() ? state.mutedUntil : null;
+  return {
+    strikeCount: Number(state?.strikeCount || 0),
+    mutedUntil,
+    muteRemainingSeconds: mutedUntil ? Math.max(0, Math.ceil((mutedUntilTime - Date.now()) / 1000)) : 0,
+    banned: Boolean(state?.bannedAt),
+    bannedAt: state?.bannedAt || null,
+    banReason: state?.banReason || null,
   };
 }
 
