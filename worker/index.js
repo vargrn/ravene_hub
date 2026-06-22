@@ -724,6 +724,7 @@ async function handleCommunityChatApi(request, env, url) {
   await ensureCommunityChatSchema(env);
   if (url.pathname === "/api/community/chat" && request.method === "GET") return listChatMessages(request, env);
   if (url.pathname === "/api/community/chat" && request.method === "POST") return createChatMessage(request, env);
+  if (url.pathname.startsWith("/api/community/chat/") && (request.method === "PUT" || request.method === "PATCH")) return editChatMessage(request, env, url);
   if (url.pathname.startsWith("/api/community/chat/") && request.method === "DELETE") return deleteChatMessage(request, env, url);
   return json({ error: "Not found" }, { status: 404 });
 }
@@ -832,6 +833,8 @@ async function ensureCommunityChatSchema(env) {
       status TEXT NOT NULL CHECK (status IN ('active', 'deleted')),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
+      edited_at TEXT,
+      edit_count INTEGER NOT NULL DEFAULT 0,
       deleted_at TEXT,
       deleted_by TEXT REFERENCES users(id) ON DELETE SET NULL
     )`),
@@ -847,6 +850,9 @@ async function ensureCommunityChatSchema(env) {
       provider TEXT,
       model TEXT,
       raw_payload TEXT,
+      queue_type TEXT NOT NULL DEFAULT 'new_message',
+      source_message_id TEXT,
+      previous_body TEXT,
       created_at TEXT NOT NULL,
       reviewed_at TEXT,
       reviewed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -889,6 +895,30 @@ async function ensureCommunityChatSchema(env) {
     env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_moderation_logs_target ON moderation_logs(target_type, target_id)"),
     env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_moderation_logs_actor ON moderation_logs(actor_id, created_at)"),
   ]);
+
+  const chatColumns = await tableColumns(env, "community_chat_messages");
+  if (!chatColumns.has("edited_at")) {
+    await env.DB.prepare("ALTER TABLE community_chat_messages ADD COLUMN edited_at TEXT").run();
+  }
+  if (!chatColumns.has("edit_count")) {
+    await env.DB.prepare("ALTER TABLE community_chat_messages ADD COLUMN edit_count INTEGER NOT NULL DEFAULT 0").run();
+  }
+
+  const queueColumns = await tableColumns(env, "chat_moderation_queue");
+  if (!queueColumns.has("queue_type")) {
+    await env.DB.prepare("ALTER TABLE chat_moderation_queue ADD COLUMN queue_type TEXT NOT NULL DEFAULT 'new_message'").run();
+  }
+  if (!queueColumns.has("source_message_id")) {
+    await env.DB.prepare("ALTER TABLE chat_moderation_queue ADD COLUMN source_message_id TEXT").run();
+  }
+  if (!queueColumns.has("previous_body")) {
+    await env.DB.prepare("ALTER TABLE chat_moderation_queue ADD COLUMN previous_body TEXT").run();
+  }
+
+  await env.DB.batch([
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_chat_moderation_source ON chat_moderation_queue(source_message_id)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_chat_moderation_type_created ON chat_moderation_queue(queue_type, created_at)"),
+  ]);
 }
 
 async function listChatMessages(request, env) {
@@ -896,6 +926,7 @@ async function listChatMessages(request, env) {
   if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
   const rows = await env.DB.prepare(
     `SELECT community_chat_messages.id, community_chat_messages.user_id, community_chat_messages.body, community_chat_messages.created_at,
+            community_chat_messages.updated_at, community_chat_messages.edited_at, community_chat_messages.edit_count,
             users.display_name, users.email, users.avatar_url
      FROM community_chat_messages
      JOIN users ON users.id = community_chat_messages.user_id
@@ -908,10 +939,14 @@ async function listChatMessages(request, env) {
     id: row.id,
     body: row.body,
     createdAt: row.created_at,
+    updatedAt: row.updated_at || row.created_at,
+    editedAt: row.edited_at || null,
+    edited: Boolean(row.edited_at || Number(row.edit_count || 0) > 0),
     authorName: row.display_name || row.email || "Ravene Hub user",
     authorAvatar: row.avatar_url || null,
     own: row.user_id === account.user.id,
     canDelete: Boolean(account.permissions?.canModerate || row.user_id === account.user.id),
+    canEdit: row.user_id === account.user.id,
     canTranslate,
   }));
   return json({ messages, canModerate: Boolean(account.permissions?.canModerate), canTranslate });
@@ -946,6 +981,51 @@ async function createChatMessage(request, env) {
   await env.DB.prepare(
     "INSERT INTO community_chat_messages (id, user_id, body, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)",
   ).bind(randomId(), account.user.id, message, now, now).run();
+  return listChatMessages(request, env);
+}
+
+async function editChatMessage(request, env, url) {
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+  const messageId = cleanRecordId(decodeURIComponent(url.pathname.split("/").pop() || ""));
+  const row = await env.DB.prepare("SELECT id, user_id, body FROM community_chat_messages WHERE id = ? AND status = 'active' LIMIT 1").bind(messageId).first();
+  if (!row) return json({ error: "Message was not found" }, { status: 404 });
+  if (row.user_id !== account.user.id) return json({ error: "You can edit only your own messages" }, { status: 403 });
+
+  const userState = await chatUserState(env, account.user.id);
+  if (userState.bannedAt) return json({ error: "Chat access is restricted." }, { status: 403 });
+  if (userState.mutedUntil && new Date(userState.mutedUntil).getTime() > Date.now()) {
+    return json({ error: "Chat is temporarily muted for this account." }, { status: 429 });
+  }
+
+  const payload = await readJson(request);
+  const nextBody = cleanLongText(payload.body, 1800);
+  if (!nextBody) return json({ error: "Write a message first" }, { status: 400 });
+  if (nextBody === row.body) return listChatMessages(request, env);
+
+  const moderation = await moderateChatMessage(env, request, account, nextBody, { sourceMessageId: row.id, isEdit: true });
+  if (moderation.decision === "blocked" || moderation.decision === "quarantine") {
+    await saveChatModerationQueue(env, account.user.id, nextBody, moderation, {
+      queueType: "edit_message",
+      sourceMessageId: row.id,
+      previousBody: row.body,
+    });
+    await incrementChatStrike(env, account.user.id, moderation);
+    const response = await listChatMessages(request, env);
+    const data = await response.json();
+    return json({ ...data, notice: moderation.decision === "blocked" ? "Your edit could not be posted." : "Your edit is waiting for moderation." }, { status: moderation.decision === "blocked" ? 400 : 200 });
+  }
+
+  const now = new Date().toISOString();
+  await env.DB.prepare("UPDATE community_chat_messages SET body = ?, edited_at = ?, edit_count = COALESCE(edit_count, 0) + 1, updated_at = ? WHERE id = ?")
+    .bind(nextBody, now, now, row.id).run();
+  await writeModerationLog(env, {
+    actorId: account.user.id,
+    targetUserId: row.user_id,
+    targetType: "chat_message",
+    targetId: row.id,
+    action: "edit_own_chat_message",
+  });
   return listChatMessages(request, env);
 }
 
@@ -989,6 +1069,7 @@ async function listChatModerationQueue(request, env) {
   const rows = await env.DB.prepare(
     `SELECT chat_moderation_queue.id, chat_moderation_queue.user_id, chat_moderation_queue.body, chat_moderation_queue.decision,
             chat_moderation_queue.reason, chat_moderation_queue.categories, chat_moderation_queue.provider, chat_moderation_queue.model,
+            chat_moderation_queue.queue_type, chat_moderation_queue.source_message_id, chat_moderation_queue.previous_body,
             chat_moderation_queue.created_at, users.display_name, users.email
      FROM chat_moderation_queue
      LEFT JOIN users ON users.id = chat_moderation_queue.user_id
@@ -1006,19 +1087,32 @@ async function approveQueuedChatMessage(request, env, url) {
   const row = await env.DB.prepare("SELECT * FROM chat_moderation_queue WHERE id = ? AND review_action IS NULL LIMIT 1").bind(queueId).first();
   if (!row) return json({ error: "Queued message was not found" }, { status: 404 });
   const now = new Date().toISOString();
-  await env.DB.batch([
-    env.DB.prepare("INSERT INTO community_chat_messages (id, user_id, body, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)")
-      .bind(randomId(), row.user_id, row.body, now, now),
-    env.DB.prepare("UPDATE chat_moderation_queue SET reviewed_at = ?, reviewed_by = ?, review_action = 'approved' WHERE id = ?")
-      .bind(now, account.user.id, row.id),
-  ]);
+  const isEdit = row.queue_type === "edit_message" && row.source_message_id;
+  if (isEdit) {
+    const source = await env.DB.prepare("SELECT id FROM community_chat_messages WHERE id = ? AND status = 'active' LIMIT 1").bind(row.source_message_id).first();
+    if (!source) return json({ error: "Original message is no longer available" }, { status: 404 });
+    await env.DB.batch([
+      env.DB.prepare("UPDATE community_chat_messages SET body = ?, edited_at = ?, edit_count = COALESCE(edit_count, 0) + 1, updated_at = ? WHERE id = ?")
+        .bind(row.body, now, now, row.source_message_id),
+      env.DB.prepare("UPDATE chat_moderation_queue SET reviewed_at = ?, reviewed_by = ?, review_action = 'approved' WHERE id = ?")
+        .bind(now, account.user.id, row.id),
+    ]);
+  } else {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO community_chat_messages (id, user_id, body, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)")
+        .bind(randomId(), row.user_id, row.body, now, now),
+      env.DB.prepare("UPDATE chat_moderation_queue SET reviewed_at = ?, reviewed_by = ?, review_action = 'approved' WHERE id = ?")
+        .bind(now, account.user.id, row.id),
+    ]);
+  }
   await writeModerationLog(env, {
     actorId: account.user.id,
     targetUserId: row.user_id,
     targetType: "chat_moderation_queue",
     targetId: row.id,
-    action: "approve_chat_message",
+    action: isEdit ? "approve_chat_edit" : "approve_chat_message",
     reason: row.reason || null,
+    rawPayload: isEdit ? { sourceMessageId: row.source_message_id } : null,
   });
   return listChatModerationQueue(request, env);
 }
@@ -1094,24 +1188,35 @@ async function chatUserState(env, userId) {
 async function incrementChatStrike(env, userId, moderation) {
   if (!userId || moderation.decision !== "blocked") return;
   const now = new Date().toISOString();
-  const shouldMute = moderation.categories?.includes("spam") || moderation.categories?.includes("scam") || moderation.categories?.includes("threat") || moderation.categories?.includes("doxxing");
-  const mutedUntil = shouldMute ? addMinutes(new Date(), 30).toISOString() : null;
+  const current = await chatUserState(env, userId);
+  const nextStrikeCount = current.strikeCount + 1;
+  const categories = Array.isArray(moderation.categories) ? moderation.categories : [];
+  const muteEligible = categories.some((category) => ["spam", "scam", "flood", "threat", "doxxing", "illegal_minor_sexual_content"].includes(category));
+  const muteAfter = Number(env.CHAT_AUTO_MUTE_AFTER_STRIKES || 3);
+  const shouldMute = muteEligible && nextStrikeCount >= muteAfter;
+  const muteMinutes = Math.min(60, 10 * Math.max(1, nextStrikeCount - muteAfter + 1));
+  const mutedUntil = shouldMute ? addMinutes(new Date(), muteMinutes).toISOString() : null;
   await env.DB.prepare(
     `INSERT INTO chat_user_moderation (user_id, strike_count, muted_until, updated_at)
      VALUES (?, 1, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        strike_count = strike_count + 1,
-       muted_until = COALESCE(excluded.muted_until, chat_user_moderation.muted_until),
+       muted_until = CASE
+         WHEN excluded.muted_until IS NOT NULL
+          AND (chat_user_moderation.muted_until IS NULL OR chat_user_moderation.muted_until < excluded.muted_until)
+         THEN excluded.muted_until
+         ELSE chat_user_moderation.muted_until
+       END,
        updated_at = excluded.updated_at`,
   ).bind(userId, mutedUntil, now).run();
 }
 
-async function saveChatModerationQueue(env, userId, body, moderation) {
+async function saveChatModerationQueue(env, userId, body, moderation, options = {}) {
   const now = new Date().toISOString();
   const queueId = randomId();
   await env.DB.prepare(
-    `INSERT INTO chat_moderation_queue (id, user_id, body, decision, reason, categories, provider, model, raw_payload, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO chat_moderation_queue (id, user_id, body, decision, reason, categories, provider, model, raw_payload, queue_type, source_message_id, previous_body, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     queueId,
     userId,
@@ -1122,6 +1227,9 @@ async function saveChatModerationQueue(env, userId, body, moderation) {
     moderation.provider || "local",
     moderation.model || null,
     moderation.raw ? JSON.stringify(moderation.raw).slice(0, 4000) : null,
+    options.queueType || "new_message",
+    options.sourceMessageId || null,
+    options.previousBody || null,
     now,
   ).run();
   await writeModerationLog(env, {
@@ -1135,7 +1243,7 @@ async function saveChatModerationQueue(env, userId, body, moderation) {
   });
 }
 
-async function moderateChatMessage(env, request, account, message) {
+async function moderateChatMessage(env, request, account, message, options = {}) {
   const local = await localChatModeration(env, request, account, message);
   if (local.decision === "blocked") return local;
 
@@ -1288,7 +1396,13 @@ function publicQueuedChatMessage(row) {
     categories,
     provider: row.provider || "local",
     model: row.model || null,
+    queueType: row.queue_type || "new_message",
+    sourceMessageId: row.source_message_id || null,
+    previousBody: row.previous_body || "",
     createdAt: row.created_at,
+    updatedAt: row.updated_at || row.created_at,
+    editedAt: row.edited_at || null,
+    edited: Boolean(row.edited_at || Number(row.edit_count || 0) > 0),
     authorName: row.display_name || row.email || "Ravene Hub user",
     authorEmail: row.email || "",
   };

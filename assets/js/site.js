@@ -1195,8 +1195,9 @@
     list.innerHTML = items.map((item) => `
       <article class="admin-row admin-chat-row" data-queue-row="${escapeHTML(item.id)}">
         <div>
-          <strong>${escapeHTML(item.decision === "blocked" ? "Blocked" : "Quarantined")} · ${escapeHTML(item.authorName)}</strong>
+          <strong>${escapeHTML(item.decision === "blocked" ? "Blocked" : "Quarantined")} · ${escapeHTML(item.queueType === "edit_message" ? "edited message" : "new message")} · ${escapeHTML(item.authorName)}</strong>
           <span>${escapeHTML(shortDateTime(item.createdAt))} · ${escapeHTML(item.reason || "Needs review")} · ${(item.categories || []).map(escapeHTML).join(", ")}</span>
+          ${item.previousBody ? `<p class="admin-hidden-body" hidden data-queue-previous="${escapeHTML(item.id)}"><strong>Previous:</strong><br>${escapeHTML(item.previousBody).replace(/\n/g, "<br>")}</p>` : ""}
           <p class="admin-hidden-body" data-queue-body="${escapeHTML(item.id)}" hidden>${escapeHTML(item.body).replace(/\n/g, "<br>")}</p>
           <div class="chat-translation" data-queue-translation="${escapeHTML(item.id)}" hidden></div>
         </div>
@@ -1243,9 +1244,13 @@
     document.addEventListener("click", async (event) => {
       const showButton = event.target.closest("[data-show-queue-message]");
       if (showButton && panel.contains(showButton)) {
-        const body = panel.querySelector(`[data-queue-body="${CSS.escape(showButton.dataset.showQueueMessage)}"]`);
+        const id = showButton.dataset.showQueueMessage;
+        const body = panel.querySelector(`[data-queue-body="${CSS.escape(id)}"]`);
+        const previous = panel.querySelector(`[data-queue-previous="${CSS.escape(id)}"]`);
         if (body) {
-          body.hidden = !body.hidden;
+          const nextHidden = !body.hidden;
+          body.hidden = nextHidden;
+          if (previous) previous.hidden = nextHidden;
           showButton.textContent = body.hidden ? "Show text" : "Hide text";
         }
         return;
@@ -1361,19 +1366,31 @@
       list.innerHTML = `<p class="form-note">No messages yet.</p>`;
       return;
     }
-    list.innerHTML = messages.map((item) => `
-      <article class="chat-message ${item.own ? "is-own" : ""}">
-        <img src="${escapeHTML(item.authorAvatar || "assets/media/profile/avatar.webp")}" alt="" />
-        <div class="chat-message-body">
-          <div class="comment-item-head"><strong>${escapeHTML(item.authorName)}</strong><span>${escapeHTML(shortDateTime(item.createdAt))}</span></div>
-          <p>${escapeHTML(item.body).replace(/\n/g, "<br>")}</p>
-          <div class="chat-actions">
-            ${item.canDelete ? `<button class="mini-btn danger" type="button" data-delete-chat="${escapeHTML(item.id)}">Delete</button>` : ""}
+    list.innerHTML = messages.map((item) => {
+      const id = escapeHTML(item.id);
+      const editedLabel = item.edited ? ` · edited` : "";
+      return `
+        <article class="chat-message ${item.own ? "is-own" : ""}" data-chat-row="${id}">
+          <img src="${escapeHTML(item.authorAvatar || "assets/media/profile/avatar.webp")}" alt="" />
+          <div class="chat-message-body">
+            <div class="comment-item-head"><strong>${escapeHTML(item.authorName)}</strong><span>${escapeHTML(shortDateTime(item.createdAt))}${editedLabel}</span></div>
+            <p data-chat-text="${id}">${escapeHTML(item.body).replace(/\n/g, "<br>")}</p>
+            <form class="chat-edit-form" data-chat-edit-form="${id}" hidden>
+              <textarea name="body" rows="3">${escapeHTML(item.body)}</textarea>
+              <div class="chat-actions">
+                <button class="mini-btn" type="submit">Save edit</button>
+                <button class="mini-btn" type="button" data-cancel-chat-edit="${id}">Cancel</button>
+              </div>
+            </form>
+            <div class="chat-actions">
+              ${item.canEdit ? `<button class="mini-btn" type="button" data-edit-chat="${id}">Edit</button>` : ""}
+              ${item.canDelete ? `<button class="mini-btn danger" type="button" data-delete-chat="${id}">Delete</button>` : ""}
+            </div>
+            ${chatTranslateControls(item)}
           </div>
-          ${chatTranslateControls(item)}
-        </div>
-      </article>
-    `).join("");
+        </article>
+      `;
+    }).join("");
     list.scrollTop = list.scrollHeight;
   };
 
@@ -1444,6 +1461,36 @@
         return;
       }
 
+      const editButton = event.target.closest("[data-edit-chat]");
+      if (editButton && chat.contains(editButton)) {
+        const id = editButton.dataset.editChat;
+        const row = chat.querySelector(`[data-chat-row="${CSS.escape(id)}"]`);
+        const text = row?.querySelector(`[data-chat-text="${CSS.escape(id)}"]`);
+        const editForm = row?.querySelector(`[data-chat-edit-form="${CSS.escape(id)}"]`);
+        if (text && editForm) {
+          text.hidden = true;
+          editForm.hidden = false;
+          editForm.querySelector("textarea")?.focus();
+          editButton.hidden = true;
+        }
+        return;
+      }
+
+      const cancelEditButton = event.target.closest("[data-cancel-chat-edit]");
+      if (cancelEditButton && chat.contains(cancelEditButton)) {
+        const id = cancelEditButton.dataset.cancelChatEdit;
+        const row = chat.querySelector(`[data-chat-row="${CSS.escape(id)}"]`);
+        const text = row?.querySelector(`[data-chat-text="${CSS.escape(id)}"]`);
+        const editForm = row?.querySelector(`[data-chat-edit-form="${CSS.escape(id)}"]`);
+        const editButtonAgain = row?.querySelector(`[data-edit-chat="${CSS.escape(id)}"]`);
+        if (text && editForm) {
+          editForm.hidden = true;
+          text.hidden = false;
+          if (editButtonAgain) editButtonAgain.hidden = false;
+        }
+        return;
+      }
+
       const button = event.target.closest("[data-delete-chat]");
       if (!button || !chat.contains(button)) return;
       button.disabled = true;
@@ -1454,6 +1501,29 @@
       } catch (error) {
         button.disabled = false;
         if (message) message.textContent = error.message || "Could not delete message.";
+      }
+    });
+
+    document.addEventListener("submit", async (event) => {
+      const editForm = event.target.closest("[data-chat-edit-form]");
+      if (!editForm || !chat.contains(editForm)) return;
+      event.preventDefault();
+      const id = editForm.dataset.chatEditForm;
+      const body = String(new FormData(editForm).get("body") || "").trim();
+      if (!body) return;
+      const submitButton = editForm.querySelector("button[type='submit']");
+      if (submitButton) submitButton.disabled = true;
+      if (message) message.textContent = "Saving edit...";
+      try {
+        const data = await api(`/api/community/chat/${encodeURIComponent(id)}`, {
+          method: "PUT",
+          body: JSON.stringify({ body }),
+        });
+        renderChatMessages(data.messages || []);
+        if (message) message.textContent = data.notice || "Message edited.";
+      } catch (error) {
+        if (submitButton) submitButton.disabled = false;
+        if (message) message.textContent = error.message || "Could not edit message.";
       }
     });
 
