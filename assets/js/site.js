@@ -1437,16 +1437,19 @@
     list.innerHTML = messages.map((item) => {
       const id = escapeHTML(item.id);
       const editedLabel = item.edited ? ` · edited` : "";
-      const actionControls = `
-        ${item.canEdit ? `<button class="mini-btn" type="button" data-edit-chat="${id}">Edit</button>` : ""}
-        ${item.canDelete ? `<button class="mini-btn danger" type="button" data-delete-chat="${id}">Delete</button>` : ""}
-        ${chatTranslateControls(item)}
+      const messageActions = `
+        ${item.canEdit ? `<button class="chat-action-link" type="button" data-edit-chat="${id}">Edit</button>` : ""}
+        ${item.canDelete ? `<button class="chat-action-link is-danger" type="button" data-delete-chat="${id}">Delete</button>` : ""}
       `.trim();
+      const translateControls = chatTranslateControls(item);
       return `
         <article class="chat-message ${item.own ? "is-own" : ""}" data-chat-row="${id}">
           <img src="${escapeHTML(item.authorAvatar || "assets/media/profile/avatar.webp")}" alt="" />
           <div class="chat-message-body">
-            <div class="comment-item-head"><strong>${escapeHTML(item.authorName)}</strong><span>${escapeHTML(shortDateTime(item.createdAt))}${editedLabel}</span></div>
+            <div class="comment-item-head chat-message-head">
+              <div class="chat-message-meta"><strong>${escapeHTML(item.authorName)}</strong><span>${escapeHTML(shortDateTime(item.createdAt))}${editedLabel}</span></div>
+              ${messageActions ? `<div class="chat-inline-actions">${messageActions}</div>` : ""}
+            </div>
             <p data-chat-text="${id}">${escapeHTML(item.body).replace(/\n/g, "<br>")}</p>
             <form class="chat-edit-form" data-chat-edit-form="${id}" hidden>
               <textarea name="body" rows="3">${escapeHTML(item.body)}</textarea>
@@ -1455,7 +1458,7 @@
                 <button class="mini-btn" type="button" data-cancel-chat-edit="${id}">Cancel</button>
               </div>
             </form>
-            ${actionControls ? `<div class="chat-control-panel">${actionControls}</div>` : ""}
+            ${translateControls ? `<div class="chat-control-panel">${translateControls}</div>` : ""}
             <div class="chat-translation" data-chat-translation="${id}" hidden></div>
           </div>
         </article>

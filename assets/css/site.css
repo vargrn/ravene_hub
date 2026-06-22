@@ -3660,46 +3660,112 @@ background-size: cover;
   color: rgba(255, 184, 176, 0.98);
 }
 
+.chat-message-head {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+}
+
+.chat-message-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-inline-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 16px;
+  align-items: center;
+  margin-left: auto;
+  opacity: 0.66;
+  transition: opacity 160ms ease;
+}
+
+.chat-message:hover .chat-inline-actions,
+.chat-message:focus-within .chat-inline-actions {
+  opacity: 1;
+}
+
+.chat-action-link {
+  appearance: none;
+  border: 0;
+  border-bottom: 1px dotted rgba(185, 195, 213, 0.55);
+  border-radius: 0;
+  padding: 0 0 2px;
+  background: transparent;
+  color: rgba(188, 197, 214, 0.82);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease, opacity 160ms ease;
+}
+
+.chat-action-link:hover,
+.chat-action-link:focus-visible {
+  color: var(--text);
+  border-color: rgba(232, 238, 248, 0.92);
+  outline: none;
+}
+
+.chat-action-link.is-danger {
+  color: rgba(207, 183, 183, 0.78);
+  border-color: rgba(255, 137, 128, 0.38);
+}
+
+.chat-action-link.is-danger:hover,
+.chat-action-link.is-danger:focus-visible {
+  color: rgba(255, 219, 214, 0.98);
+  border-color: rgba(255, 137, 128, 0.74);
+}
+
 .chat-control-panel {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
-  margin-top: 10px;
-  padding: 5px;
+  margin-top: 12px;
+  padding: 7px;
   border: 1px solid rgba(232, 238, 248, 0.10);
-  background: rgba(4, 7, 13, 0.34);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
-  opacity: 0.74;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
+    rgba(4, 7, 13, 0.30);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  opacity: 0.72;
   transition: opacity 160ms ease, border-color 160ms ease, background 160ms ease;
 }
 
 .chat-message:hover .chat-control-panel,
 .chat-control-panel:focus-within {
   opacity: 1;
-  border-color: rgba(232, 238, 248, 0.17);
-  background: rgba(4, 7, 13, 0.54);
+  border-color: rgba(184, 212, 255, 0.20);
+  background:
+    linear-gradient(135deg, rgba(184, 212, 255, 0.07), rgba(255, 255, 255, 0.02)),
+    rgba(4, 7, 13, 0.46);
 }
 
 .chat-control-group {
   display: inline-flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
 }
 
 .chat-control-panel .mini-btn {
-  min-height: 30px;
-  padding: 0 10px;
+  min-height: 28px;
+  padding: 0 11px;
   border-color: rgba(232, 238, 248, 0.14);
-  background: rgba(255, 255, 255, 0.045);
-  color: var(--text-soft);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(214, 221, 234, 0.86);
   font-size: 11px;
   line-height: 1;
 }
 
 .chat-control-panel .mini-btn:hover {
-  border-color: rgba(184, 212, 255, 0.28);
-  background: rgba(184, 212, 255, 0.08);
+  border-color: rgba(184, 212, 255, 0.30);
+  background: rgba(184, 212, 255, 0.09);
   color: var(--text);
 }
 
@@ -3716,13 +3782,13 @@ background-size: cover;
 }
 
 .chat-control-panel select {
-  min-height: 30px;
-  max-width: 122px;
+  min-height: 28px;
+  max-width: 128px;
   padding: 0 28px 0 10px;
   border: 1px solid rgba(232, 238, 248, 0.12);
   border-radius: 0;
-  background: rgba(4, 7, 13, 0.62);
-  color: var(--text-soft);
+  background: rgba(4, 7, 13, 0.64);
+  color: rgba(214, 221, 234, 0.78);
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 11px;
   outline: none;
