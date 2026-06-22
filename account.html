@@ -85,35 +85,7 @@
             </div>
           </article>
 
-          <article class="glass card" id="admin-posts" data-admin-panel data-admin-only hidden>
-            <div class="meta"><span>Admin</span><span>Publishing console</span></div>
-            <h2>Posts admin panel</h2>
-            <p class="text">Create, edit, pin, publish, hide or delete posts. Media can be attached as static asset paths or external URLs for images, video, audio and links.</p>
-            <form class="connect-form admin-post-form" data-admin-post-form>
-              <div class="form-grid-2">
-                <label>Title<input name="title" type="text" placeholder="Post title" /></label>
-                <label>Slug<input name="slug" type="text" placeholder="post-url-slug" /></label>
-              </div>
-              <div class="form-grid-3">
-                <label>Category<input name="category" type="text" value="Development" /></label>
-                <label>Status<select name="status"><option value="published">Published</option><option value="draft">Draft</option><option value="hidden">Hidden</option></select></label>
-                <label>Access<select name="visibility"><option value="public">Public</option><option value="registered">Registered</option><option value="tier1">Tier 1+</option><option value="tier2">Tier 2+</option><option value="tier3">Tier 3</option><option value="moderator">Moderators</option><option value="admin">Admins</option></select></label>
-              </div>
-              <label class="check-row"><input name="pinned" type="checkbox" value="1" /> Pin this post on the home page</label>
-              <p class="form-note">Posting date is automatic: new published posts use the current server time; drafts receive a date when they are published.</p>
-              <label>Cover URL<input name="coverUrl" type="text" placeholder="assets/media/posts/... or https://..." /></label>
-              <label>Excerpt<textarea name="excerpt" rows="3" placeholder="Short preview text"></textarea></label>
-              <label>Body<textarea name="body" rows="10" placeholder="Main post text"></textarea></label>
-              <div class="section-line"><h3>Media attachments</h3><button class="mini-btn" type="button" data-add-media>Add media</button></div>
-              <div class="media-fields" data-media-fields></div>
-              <div class="account-actions">
-                <button class="btn" type="submit">Save post</button>
-                <button class="btn btn-secondary" type="button" data-clear-post-form>New post</button>
-              </div>
-              <p class="form-note" data-admin-message>Admin tools load after account verification.</p>
-            </form>
-            <div class="admin-list" data-admin-post-list><p class="form-note">Loading posts...</p></div>
-          </article>
+
 
         </section>
         <aside class="sidebar account-chat-sidebar">
@@ -146,6 +118,35 @@
             </form>
           </section>
         </aside>
+          <article class="glass card admin-console-card" id="admin-posts" data-admin-panel data-admin-only hidden>
+            <div class="meta"><span>Admin</span><span>Publishing console</span></div>
+            <h2>Posts admin panel</h2>
+            <p class="text">Create, edit, pin, publish, hide or delete posts. Media can be attached as static asset paths or external URLs for images, video, audio and links.</p>
+            <form class="connect-form admin-post-form" data-admin-post-form>
+              <div class="form-grid-2">
+                <label>Title<input name="title" type="text" placeholder="Post title" /></label>
+                <label>Slug<input name="slug" type="text" placeholder="post-url-slug" /></label>
+              </div>
+              <div class="form-grid-3">
+                <label>Category<input name="category" type="text" value="Development" /></label>
+                <label>Status<select name="status"><option value="published">Published</option><option value="draft">Draft</option><option value="hidden">Hidden</option></select></label>
+                <label>Access<select name="visibility"><option value="public">Public</option><option value="registered">Registered</option><option value="tier1">Tier 1+</option><option value="tier2">Tier 2+</option><option value="tier3">Tier 3</option><option value="moderator">Moderators</option><option value="admin">Admins</option></select></label>
+              </div>
+              <label class="check-row"><input name="pinned" type="checkbox" value="1" /> Pin this post on the home page</label>
+              <p class="form-note">Posting date is automatic: new published posts use the current server time; drafts receive a date when they are published.</p>
+              <label>Cover URL<input name="coverUrl" type="text" placeholder="assets/media/posts/... or https://..." /></label>
+              <label>Excerpt<textarea name="excerpt" rows="3" placeholder="Short preview text"></textarea></label>
+              <label>Body<textarea name="body" rows="10" placeholder="Main post text"></textarea></label>
+              <div class="section-line"><h3>Media attachments</h3><button class="mini-btn" type="button" data-add-media>Add media</button></div>
+              <div class="media-fields" data-media-fields></div>
+              <div class="account-actions">
+                <button class="btn" type="submit">Save post</button>
+                <button class="btn btn-secondary" type="button" data-clear-post-form>New post</button>
+              </div>
+              <p class="form-note" data-admin-message>Admin tools load after account verification.</p>
+            </form>
+            <div class="admin-list" data-admin-post-list><p class="form-note">Loading posts...</p></div>
+          </article>
       </div>
     </main>
     <footer class="footer"><a href="privacy.html">Privacy Policy</a><span>© 2026 Ravene</span><a href="terms.html">Terms of Service</a></footer>

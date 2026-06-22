@@ -3213,3 +3213,286 @@ background-size: cover;
     max-width: var(--showcase-card-width) !important;
   }
 }
+
+/* FINAL 2026-06-22: admin publishing panel rebuilt to match the site chrome. */
+.account-layout > .admin-console-card {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.admin-console-card > .meta,
+.admin-console-card > h2,
+.admin-console-card > .text {
+  position: relative;
+  z-index: 1;
+  max-width: 850px;
+  margin-left: 0;
+}
+
+.admin-console-card > .meta {
+  padding: 26px 28px 0;
+}
+
+.admin-console-card > h2 {
+  padding: 8px 28px 0;
+  font-size: 34px;
+  line-height: 1.02;
+}
+
+.admin-console-card > .text {
+  padding: 10px 28px 24px;
+}
+
+.admin-console-card > .text::after {
+  content: "";
+  position: absolute;
+  left: 28px;
+  right: -360px;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(232, 238, 248, 0.22), rgba(232, 238, 248, 0));
+}
+
+.admin-console-card .admin-post-form {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  padding: 24px 28px 28px;
+  gap: 18px;
+  border-top: 1px solid rgba(232, 238, 248, 0.055);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(184, 212, 255, 0.055), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0.008));
+}
+
+.admin-console-card .form-grid-2,
+.admin-console-card .form-grid-3 {
+  gap: 14px;
+}
+
+.admin-console-card .admin-post-form label {
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.admin-console-card input,
+.admin-console-card textarea,
+.admin-console-card select {
+  width: 100%;
+  border: 1px solid rgba(232, 238, 248, 0.115) !important;
+  border-radius: 0 !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.01)),
+    rgba(4, 7, 13, 0.72) !important;
+  color: var(--text);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  font-size: 13px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.admin-console-card input,
+.admin-console-card select {
+  min-height: 46px;
+  padding: 0 13px;
+}
+
+.admin-console-card textarea {
+  min-height: 0;
+  padding: 12px 13px;
+  resize: vertical;
+  line-height: 1.58;
+}
+
+.admin-console-card textarea[name="body"] {
+  min-height: 210px;
+}
+
+.admin-console-card input:focus,
+.admin-console-card textarea:focus,
+.admin-console-card select:focus {
+  border-color: rgba(184, 212, 255, 0.38) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 0 3px rgba(184, 212, 255, 0.07);
+  outline: none;
+}
+
+.admin-console-card select {
+  appearance: none;
+  padding-right: 40px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgba(232, 238, 248, 0.72) 50%),
+    linear-gradient(135deg, rgba(232, 238, 248, 0.72) 50%, transparent 50%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.01));
+  background-position:
+    calc(100% - 18px) 50%,
+    calc(100% - 13px) 50%,
+    0 0;
+  background-size: 6px 6px, 6px 6px, 100% 100%;
+  background-repeat: no-repeat;
+}
+
+.admin-console-card .check-row {
+  min-height: 54px;
+  justify-content: flex-start;
+  gap: 12px !important;
+  padding: 14px 15px;
+  border: 1px solid rgba(232, 238, 248, 0.115);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.014)),
+    rgba(4, 7, 13, 0.40);
+  color: var(--text-soft);
+}
+
+.admin-console-card .check-row input[type="checkbox"] {
+  appearance: none;
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px;
+  min-height: 18px;
+  flex: 0 0 18px;
+  padding: 0;
+  border: 1px solid rgba(232, 238, 248, 0.32) !important;
+  background: rgba(4, 7, 13, 0.80) !important;
+  box-shadow: inset 0 0 0 2px rgba(4, 7, 13, 0.9);
+  cursor: pointer;
+}
+
+.admin-console-card .check-row input[type="checkbox"]:checked {
+  background:
+    linear-gradient(135deg, rgba(232, 238, 248, 0.95), rgba(184, 212, 255, 0.68)) !important;
+  border-color: rgba(232, 238, 248, 0.62) !important;
+}
+
+.admin-console-card .section-line {
+  margin: 2px 0 -2px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(232, 238, 248, 0.075);
+}
+
+.admin-console-card .section-line h3 {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.admin-console-card .media-fields {
+  gap: 12px;
+}
+
+.admin-console-card .media-field-row {
+  grid-template-columns: 130px minmax(0, 1.3fr) minmax(180px, 0.82fr) 38px;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid rgba(232, 238, 248, 0.085);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.admin-console-card .media-field-row .mini-btn {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+}
+
+.admin-console-card .account-actions {
+  max-width: 480px;
+  margin-top: 2px;
+}
+
+.admin-console-card .account-actions .btn {
+  min-height: 48px;
+}
+
+.admin-console-card .form-note {
+  color: var(--text-muted);
+}
+
+.admin-console-card .admin-list {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  padding: 0 28px 28px;
+  display: grid;
+  gap: 12px;
+}
+
+.admin-console-card .admin-row {
+  min-height: 76px;
+  padding: 15px 16px;
+  border: 1px solid rgba(232, 238, 248, 0.10);
+  border-radius: 0;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.034), rgba(255, 255, 255, 0.012)),
+    rgba(4, 7, 13, 0.38);
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+}
+
+.admin-console-card .admin-row:hover {
+  border-color: rgba(232, 238, 248, 0.19);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.048), rgba(255, 255, 255, 0.016)),
+    rgba(4, 7, 13, 0.48);
+  transform: translateY(-1px);
+}
+
+.admin-console-card .admin-row strong {
+  font-size: 16px;
+  line-height: 1.3;
+  font-weight: 400;
+}
+
+.admin-console-card .admin-row span {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.admin-console-card .mini-btn.danger {
+  background: rgba(120, 26, 26, 0.10);
+}
+
+@media (max-width: 980px) {
+  .account-layout > .admin-console-card {
+    grid-column: 1;
+  }
+}
+
+@media (max-width: 780px) {
+  .admin-console-card > .meta {
+    padding: 22px 20px 0;
+  }
+
+  .admin-console-card > h2 {
+    padding: 8px 20px 0;
+    font-size: 30px;
+  }
+
+  .admin-console-card > .text {
+    padding: 10px 20px 20px;
+  }
+
+  .admin-console-card .admin-post-form,
+  .admin-console-card .admin-list {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .admin-console-card .form-grid-2,
+  .admin-console-card .form-grid-3,
+  .admin-console-card .media-field-row,
+  .admin-console-card .account-actions,
+  .admin-console-card .admin-row {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-console-card .media-field-row .mini-btn {
+    width: 100%;
+  }
+}
