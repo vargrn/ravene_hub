@@ -3514,3 +3514,68 @@ background-size: cover;
     0 28px 76px rgba(0, 0, 0, 0.38),
     0 0 42px rgba(236, 198, 112, 0.14) !important;
 }
+
+/* FINAL 2026-06-22: AI chat shield and admin-only translations. */
+.chat-actions,
+.chat-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.chat-tools select,
+.admin-chat-row select {
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid rgba(232, 238, 248, 0.14);
+  border-radius: 0;
+  background: rgba(4, 7, 13, 0.72);
+  color: var(--text-soft);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  font-size: 12px;
+}
+
+.chat-translation {
+  margin-top: 10px;
+  padding: 10px 11px;
+  border-left: 1px solid rgba(184, 212, 255, 0.28);
+  background: rgba(184, 212, 255, 0.055);
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.admin-chat-console-card .admin-list {
+  padding-top: 24px;
+}
+
+.admin-chat-note {
+  padding: 0 28px 28px;
+  margin: -12px 0 0;
+}
+
+.admin-chat-row {
+  align-items: start !important;
+}
+
+.admin-chat-row .admin-row-actions {
+  min-width: 320px;
+}
+
+.admin-hidden-body {
+  margin: 12px 0 0;
+  padding: 12px;
+  border: 1px solid rgba(232, 238, 248, 0.10);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+@media (max-width: 720px) {
+  .admin-chat-row .admin-row-actions {
+    min-width: 0;
+  }
+}

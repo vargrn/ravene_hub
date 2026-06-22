@@ -61,6 +61,10 @@ async function handleApi(request, env, url) {
       return handleCommunityChatApi(request, env, url);
     }
 
+    if (url.pathname === "/api/admin/chat" || url.pathname.startsWith("/api/admin/chat/")) {
+      return handleAdminChatApi(request, env, url);
+    }
+
     if (url.pathname === "/api/admin/users" || url.pathname.startsWith("/api/admin/users/")) {
       return handleAdminUsersApi(request, env, url);
     }
@@ -192,6 +196,7 @@ async function currentAccount(request, env) {
       email: sessionUser.email,
       displayName: sessionUser.display_name || sessionUser.email || "Ravene Hub user",
       avatarUrl: sessionUser.avatar_url,
+      createdAt: sessionUser.created_at || null,
       role,
     },
     role,
@@ -832,6 +837,44 @@ async function ensureCommunityChatSchema(env) {
     )`),
     env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_chat_created ON community_chat_messages(created_at)"),
     env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_chat_status_created ON community_chat_messages(status, created_at)"),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS chat_moderation_queue (
+      id TEXT PRIMARY KEY,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      body TEXT NOT NULL,
+      decision TEXT NOT NULL CHECK (decision IN ('quarantine', 'blocked')),
+      reason TEXT,
+      categories TEXT,
+      provider TEXT,
+      model TEXT,
+      raw_payload TEXT,
+      created_at TEXT NOT NULL,
+      reviewed_at TEXT,
+      reviewed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      review_action TEXT CHECK (review_action IN ('approved', 'dismissed', 'deleted'))
+    )`),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_chat_moderation_created ON chat_moderation_queue(created_at)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_chat_moderation_review ON chat_moderation_queue(review_action, created_at)"),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS chat_user_moderation (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      strike_count INTEGER NOT NULL DEFAULT 0,
+      muted_until TEXT,
+      banned_at TEXT,
+      ban_reason TEXT,
+      updated_at TEXT NOT NULL
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS chat_message_translations (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      source_table TEXT NOT NULL DEFAULT 'community_chat_messages' CHECK (source_table IN ('community_chat_messages', 'chat_moderation_queue')),
+      target_language TEXT NOT NULL,
+      translated_body TEXT NOT NULL,
+      provider TEXT,
+      model TEXT,
+      created_at TEXT NOT NULL,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      UNIQUE(message_id, source_table, target_language)
+    )`),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_chat_translations_message ON chat_message_translations(message_id, source_table, target_language)"),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS moderation_logs (
       id TEXT PRIMARY KEY,
       actor_id TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -860,6 +903,7 @@ async function listChatMessages(request, env) {
      ORDER BY community_chat_messages.created_at DESC
      LIMIT 80`,
   ).all();
+  const canTranslate = Boolean(account.permissions?.canManagePosts);
   const messages = (rows.results || []).reverse().map((row) => ({
     id: row.id,
     body: row.body,
@@ -868,8 +912,9 @@ async function listChatMessages(request, env) {
     authorAvatar: row.avatar_url || null,
     own: row.user_id === account.user.id,
     canDelete: Boolean(account.permissions?.canModerate || row.user_id === account.user.id),
+    canTranslate,
   }));
-  return json({ messages, canModerate: Boolean(account.permissions?.canModerate) });
+  return json({ messages, canModerate: Boolean(account.permissions?.canModerate), canTranslate });
 }
 
 async function createChatMessage(request, env) {
@@ -878,6 +923,25 @@ async function createChatMessage(request, env) {
   const body = await readJson(request);
   const message = cleanLongText(body.body, 1800);
   if (!message) return json({ error: "Write a message first" }, { status: 400 });
+
+  const userState = await chatUserState(env, account.user.id);
+  if (userState.bannedAt) return json({ error: "Chat access is restricted." }, { status: 403 });
+  if (userState.mutedUntil && new Date(userState.mutedUntil).getTime() > Date.now()) {
+    return json({ error: "Chat is temporarily muted for this account." }, { status: 429 });
+  }
+
+  const moderation = await moderateChatMessage(env, request, account, message);
+  if (moderation.decision === "blocked" || moderation.decision === "quarantine") {
+    await saveChatModerationQueue(env, account.user.id, message, moderation);
+    await incrementChatStrike(env, account.user.id, moderation);
+    if (moderation.decision === "blocked") {
+      return json({ error: "Your message could not be posted." }, { status: 400 });
+    }
+    const response = await listChatMessages(request, env);
+    const payload = await response.json();
+    return json({ ...payload, notice: "Your message is waiting for moderation." });
+  }
+
   const now = new Date().toISOString();
   await env.DB.prepare(
     "INSERT INTO community_chat_messages (id, user_id, body, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)",
@@ -904,6 +968,412 @@ async function deleteChatMessage(request, env, url) {
     action: row.user_id === account.user.id ? "delete_own_chat_message" : "delete_chat_message",
   });
   return listChatMessages(request, env);
+}
+
+async function handleAdminChatApi(request, env, url) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+  await ensureCommunityChatSchema(env);
+
+  if (url.pathname === "/api/admin/chat/moderation-queue" && request.method === "GET") return listChatModerationQueue(request, env);
+  if (url.pathname.startsWith("/api/admin/chat/moderation-queue/") && url.pathname.endsWith("/approve") && request.method === "POST") return approveQueuedChatMessage(request, env, url);
+  if (url.pathname.startsWith("/api/admin/chat/moderation-queue/") && url.pathname.endsWith("/dismiss") && request.method === "POST") return dismissQueuedChatMessage(request, env, url);
+  if (url.pathname.startsWith("/api/admin/chat/moderation-queue/") && url.pathname.endsWith("/translate") && request.method === "POST") return translateQueuedChatMessage(request, env, url);
+  if (url.pathname.startsWith("/api/admin/chat/messages/") && url.pathname.endsWith("/translate") && request.method === "POST") return translatePublishedChatMessage(request, env, url);
+
+  return json({ error: "Not found" }, { status: 404 });
+}
+
+async function listChatModerationQueue(request, env) {
+  const account = await requirePermission(request, env, "canManagePosts", "Admin access is required");
+  if (account instanceof Response) return account;
+  const rows = await env.DB.prepare(
+    `SELECT chat_moderation_queue.id, chat_moderation_queue.user_id, chat_moderation_queue.body, chat_moderation_queue.decision,
+            chat_moderation_queue.reason, chat_moderation_queue.categories, chat_moderation_queue.provider, chat_moderation_queue.model,
+            chat_moderation_queue.created_at, users.display_name, users.email
+     FROM chat_moderation_queue
+     LEFT JOIN users ON users.id = chat_moderation_queue.user_id
+     WHERE chat_moderation_queue.review_action IS NULL
+     ORDER BY chat_moderation_queue.created_at DESC
+     LIMIT 80`,
+  ).all();
+  return json({ items: (rows.results || []).map(publicQueuedChatMessage) });
+}
+
+async function approveQueuedChatMessage(request, env, url) {
+  const account = await requirePermission(request, env, "canManagePosts", "Admin access is required");
+  if (account instanceof Response) return account;
+  const queueId = cleanRoutePart(url, -2);
+  const row = await env.DB.prepare("SELECT * FROM chat_moderation_queue WHERE id = ? AND review_action IS NULL LIMIT 1").bind(queueId).first();
+  if (!row) return json({ error: "Queued message was not found" }, { status: 404 });
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO community_chat_messages (id, user_id, body, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)")
+      .bind(randomId(), row.user_id, row.body, now, now),
+    env.DB.prepare("UPDATE chat_moderation_queue SET reviewed_at = ?, reviewed_by = ?, review_action = 'approved' WHERE id = ?")
+      .bind(now, account.user.id, row.id),
+  ]);
+  await writeModerationLog(env, {
+    actorId: account.user.id,
+    targetUserId: row.user_id,
+    targetType: "chat_moderation_queue",
+    targetId: row.id,
+    action: "approve_chat_message",
+    reason: row.reason || null,
+  });
+  return listChatModerationQueue(request, env);
+}
+
+async function dismissQueuedChatMessage(request, env, url) {
+  const account = await requirePermission(request, env, "canManagePosts", "Admin access is required");
+  if (account instanceof Response) return account;
+  const queueId = cleanRoutePart(url, -2);
+  const row = await env.DB.prepare("SELECT id, user_id, reason FROM chat_moderation_queue WHERE id = ? AND review_action IS NULL LIMIT 1").bind(queueId).first();
+  if (!row) return json({ error: "Queued message was not found" }, { status: 404 });
+  const now = new Date().toISOString();
+  await env.DB.prepare("UPDATE chat_moderation_queue SET reviewed_at = ?, reviewed_by = ?, review_action = 'dismissed' WHERE id = ?")
+    .bind(now, account.user.id, row.id).run();
+  await writeModerationLog(env, {
+    actorId: account.user.id,
+    targetUserId: row.user_id,
+    targetType: "chat_moderation_queue",
+    targetId: row.id,
+    action: "dismiss_chat_message",
+    reason: row.reason || null,
+  });
+  return listChatModerationQueue(request, env);
+}
+
+async function translatePublishedChatMessage(request, env, url) {
+  const account = await requirePermission(request, env, "canManagePosts", "Admin access is required");
+  if (account instanceof Response) return account;
+  const messageId = cleanRoutePart(url, -2);
+  const row = await env.DB.prepare("SELECT id, body FROM community_chat_messages WHERE id = ? AND status = 'active' LIMIT 1").bind(messageId).first();
+  if (!row) return json({ error: "Message was not found" }, { status: 404 });
+  return translateChatBody(request, env, account, row.id, "community_chat_messages", row.body);
+}
+
+async function translateQueuedChatMessage(request, env, url) {
+  const account = await requirePermission(request, env, "canManagePosts", "Admin access is required");
+  if (account instanceof Response) return account;
+  const queueId = cleanRoutePart(url, -2);
+  const row = await env.DB.prepare("SELECT id, body FROM chat_moderation_queue WHERE id = ? AND review_action IS NULL LIMIT 1").bind(queueId).first();
+  if (!row) return json({ error: "Queued message was not found" }, { status: 404 });
+  return translateChatBody(request, env, account, row.id, "chat_moderation_queue", row.body);
+}
+
+async function translateChatBody(request, env, account, messageId, sourceTable, body) {
+  const payload = await readJson(request);
+  const targetLanguage = cleanTargetLanguage(payload.targetLanguage || payload.language || "English");
+  if (!targetLanguage) return json({ error: "Choose a target language" }, { status: 400 });
+  const cached = await env.DB.prepare(
+    "SELECT translated_body, provider, model, created_at FROM chat_message_translations WHERE message_id = ? AND source_table = ? AND target_language = ? LIMIT 1",
+  ).bind(messageId, sourceTable, targetLanguage).first();
+  if (cached) {
+    return json({ messageId, sourceTable, targetLanguage, translation: cached.translated_body, provider: cached.provider, model: cached.model, cached: true });
+  }
+  const translated = await translateWithAi(env, body, targetLanguage);
+  if (!translated.text) return json({ error: "AI translation is not configured yet." }, { status: 503 });
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO chat_message_translations (id, message_id, source_table, target_language, translated_body, provider, model, created_at, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(randomId(), messageId, sourceTable, targetLanguage, translated.text, translated.provider, translated.model, now, account.user.id).run();
+  return json({ messageId, sourceTable, targetLanguage, translation: translated.text, provider: translated.provider, model: translated.model, cached: false });
+}
+
+async function chatUserState(env, userId) {
+  const row = await env.DB.prepare("SELECT strike_count, muted_until, banned_at, ban_reason FROM chat_user_moderation WHERE user_id = ? LIMIT 1").bind(userId).first();
+  return {
+    strikeCount: Number(row?.strike_count || 0),
+    mutedUntil: row?.muted_until || null,
+    bannedAt: row?.banned_at || null,
+    banReason: row?.ban_reason || null,
+  };
+}
+
+async function incrementChatStrike(env, userId, moderation) {
+  if (!userId || moderation.decision !== "blocked") return;
+  const now = new Date().toISOString();
+  const shouldMute = moderation.categories?.includes("spam") || moderation.categories?.includes("scam") || moderation.categories?.includes("threat") || moderation.categories?.includes("doxxing");
+  const mutedUntil = shouldMute ? addMinutes(new Date(), 30).toISOString() : null;
+  await env.DB.prepare(
+    `INSERT INTO chat_user_moderation (user_id, strike_count, muted_until, updated_at)
+     VALUES (?, 1, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       strike_count = strike_count + 1,
+       muted_until = COALESCE(excluded.muted_until, chat_user_moderation.muted_until),
+       updated_at = excluded.updated_at`,
+  ).bind(userId, mutedUntil, now).run();
+}
+
+async function saveChatModerationQueue(env, userId, body, moderation) {
+  const now = new Date().toISOString();
+  const queueId = randomId();
+  await env.DB.prepare(
+    `INSERT INTO chat_moderation_queue (id, user_id, body, decision, reason, categories, provider, model, raw_payload, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    queueId,
+    userId,
+    body,
+    moderation.decision === "blocked" ? "blocked" : "quarantine",
+    moderation.reason || null,
+    JSON.stringify(moderation.categories || []),
+    moderation.provider || "local",
+    moderation.model || null,
+    moderation.raw ? JSON.stringify(moderation.raw).slice(0, 4000) : null,
+    now,
+  ).run();
+  await writeModerationLog(env, {
+    actorId: null,
+    targetUserId: userId,
+    targetType: "chat_moderation_queue",
+    targetId: queueId,
+    action: moderation.decision === "blocked" ? "auto_block_chat_message" : "auto_quarantine_chat_message",
+    reason: moderation.reason || null,
+    rawPayload: { categories: moderation.categories || [], provider: moderation.provider || "local" },
+  });
+}
+
+async function moderateChatMessage(env, request, account, message) {
+  const local = await localChatModeration(env, request, account, message);
+  if (local.decision === "blocked") return local;
+
+  const ai = await aiChatModeration(env, message);
+  if (ai.decision === "blocked" || ai.decision === "quarantine") return ai;
+  if (local.decision === "quarantine") return local;
+  return { decision: "allow", reason: "allowed", categories: [], provider: ai.provider || "local" };
+}
+
+async function localChatModeration(env, request, account, message) {
+  const normalized = normalizeModerationText(message);
+  const categories = [];
+
+  if (containsIllegalMinorSexualContent(normalized)) {
+    return { decision: "blocked", reason: "Illegal sexual content involving minors is not allowed.", categories: ["illegal_minor_sexual_content"], provider: "local" };
+  }
+
+  const urls = message.match(/https?:\/\/\S+|www\.\S+|\b[a-z0-9.-]+\.(?:com|net|org|io|ru|xyz|top|click|shop|info|online|site|link)\b/gi) || [];
+  if (urls.length > 2) {
+    return { decision: "blocked", reason: "Too many links.", categories: ["spam"], provider: "local" };
+  }
+
+  const recentCutoff = new Date(Date.now() - 60 * 1000).toISOString();
+  const recent = await env.DB.prepare(
+    `SELECT COUNT(*) AS count FROM community_chat_messages WHERE user_id = ? AND created_at > ?
+     UNION ALL
+     SELECT COUNT(*) AS count FROM chat_moderation_queue WHERE user_id = ? AND created_at > ?`,
+  ).bind(account.user.id, recentCutoff, account.user.id, recentCutoff).all();
+  const recentCount = (recent.results || []).reduce((sum, row) => sum + Number(row.count || 0), 0);
+  const perMinuteLimit = Number(env.CHAT_MESSAGES_PER_MINUTE || 6);
+  if (!account.permissions?.canModerate && recentCount >= perMinuteLimit) {
+    return { decision: "blocked", reason: "Rate limit exceeded.", categories: ["flood"], provider: "local" };
+  }
+
+  const duplicateCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const duplicate = await env.DB.prepare(
+    `SELECT id FROM community_chat_messages WHERE user_id = ? AND body = ? AND created_at > ? LIMIT 1`,
+  ).bind(account.user.id, message, duplicateCutoff).first();
+  if (duplicate && !account.permissions?.canModerate) {
+    return { decision: "blocked", reason: "Repeated duplicate message.", categories: ["spam"], provider: "local" };
+  }
+
+  const hasNewAccount = account.user?.createdAt && Date.now() - new Date(account.user.createdAt).getTime() < 24 * 60 * 60 * 1000;
+  if (urls.length > 0 && hasNewAccount && !account.permissions?.canModerate) {
+    return { decision: "quarantine", reason: "New account posted a link.", categories: ["link_review"], provider: "local" };
+  }
+
+  if (looksLikeSpamText(message)) {
+    return { decision: "quarantine", reason: "Possible spam or bot-like text.", categories: ["spam"], provider: "local" };
+  }
+
+  return { decision: "allow", reason: "local allow", categories, provider: "local" };
+}
+
+async function aiChatModeration(env, message) {
+  if (env.CHAT_AI_MODERATION === "0" || env.CHAT_AI_MODERATION === "off") return { decision: "allow", reason: "AI moderation disabled", categories: [], provider: "disabled" };
+  const system = `You moderate a small adult indie game community chat for Ravene Hub / BioPunk.
+Return JSON only with this shape: {"decision":"allow|quarantine|blocked","reason":"short reason","categories":["short_category"],"confidence":0.0}.
+Moderate behavior, not genre themes.
+Allowed: adult fictional discussion, sex themes in the context of the game or writing, body horror, transformation, dark fiction, swearing, and criticism of the game or site.
+Quarantine: targeted insults, personal attacks, bait meant to start a fight, harassment, hate toward real protected groups, suspicious links, spam-like promotion, sexual harassment, doxxing attempts, or threats that need review.
+Block: obvious spam/scam, explicit threats, doxxing with private data, or sexual content involving minors.
+Do not quarantine only because a message mentions sex, adult themes, horror, transformation, gore, or BioPunk content.`;
+  const user = `Classify this chat message:\n${message}`;
+  const maxTokens = 180;
+  try {
+    if (env.AI?.run) {
+      const model = String(env.CF_AI_MODERATION_MODEL || env.AI_MODERATION_MODEL || "@cf/meta/llama-3.1-8b-instruct-fast");
+      const result = await env.AI.run(model, {
+        messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        max_tokens: maxTokens,
+        temperature: 0,
+      });
+      return normalizeAiModeration(parseAiText(result), "cloudflare-workers-ai", model, result);
+    }
+
+    if (env.OPENAI_API_KEY) {
+      const model = String(env.OPENAI_MODERATION_MODEL || env.AI_MODERATION_MODEL || "gpt-4o-mini");
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "system", content: system }, { role: "user", content: user }],
+          temperature: 0,
+          max_tokens: maxTokens,
+          response_format: { type: "json_object" },
+        }),
+      });
+      if (!response.ok) throw new Error(`OpenAI moderation failed: ${response.status}`);
+      const result = await response.json();
+      return normalizeAiModeration(parseAiText(result), "openai", model, result);
+    }
+  } catch (error) {
+    return { decision: "allow", reason: "AI moderation unavailable", categories: [], provider: "ai_unavailable", raw: { error: String(error?.message || error) } };
+  }
+  return { decision: "allow", reason: "AI moderation not configured", categories: [], provider: "not_configured" };
+}
+
+async function translateWithAi(env, text, targetLanguage) {
+  const system = `Translate the user message into ${targetLanguage}. Preserve meaning, tone, usernames, links, and line breaks. Return only the translation text. The source may include adult game discussion, horror, slang, or swearing; translate it neutrally without censoring it.`;
+  const user = String(text || "").slice(0, 4000);
+  try {
+    if (env.AI?.run) {
+      const model = String(env.CF_AI_TRANSLATION_MODEL || env.AI_TRANSLATION_MODEL || "@cf/meta/llama-3.1-8b-instruct-fast");
+      const result = await env.AI.run(model, {
+        messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        max_tokens: 900,
+        temperature: 0,
+      });
+      return { text: cleanAiText(parseAiText(result)), provider: "cloudflare-workers-ai", model };
+    }
+
+    if (env.OPENAI_API_KEY) {
+      const model = String(env.OPENAI_TRANSLATION_MODEL || env.AI_TRANSLATION_MODEL || "gpt-4o-mini");
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "system", content: system }, { role: "user", content: user }],
+          temperature: 0,
+          max_tokens: 900,
+        }),
+      });
+      if (!response.ok) throw new Error(`OpenAI translation failed: ${response.status}`);
+      const result = await response.json();
+      return { text: cleanAiText(parseAiText(result)), provider: "openai", model };
+    }
+  } catch (error) {
+    return { text: "", provider: "ai_unavailable", model: "", error: String(error?.message || error) };
+  }
+  return { text: "", provider: "not_configured", model: "" };
+}
+
+function publicQueuedChatMessage(row) {
+  let categories = [];
+  try { categories = JSON.parse(row.categories || "[]"); } catch { categories = []; }
+  return {
+    id: row.id,
+    body: row.body,
+    decision: row.decision,
+    reason: row.reason || "Needs review",
+    categories,
+    provider: row.provider || "local",
+    model: row.model || null,
+    createdAt: row.created_at,
+    authorName: row.display_name || row.email || "Ravene Hub user",
+    authorEmail: row.email || "",
+  };
+}
+
+function normalizeAiModeration(text, provider, model, raw) {
+  let parsed = null;
+  const cleaned = cleanAiText(text).replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  try { parsed = JSON.parse(cleaned); } catch {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { parsed = JSON.parse(match[0]); } catch { parsed = null; }
+    }
+  }
+  const decision = cleanModerationDecision(parsed?.decision);
+  return {
+    decision: decision || "allow",
+    reason: cleanLongText(parsed?.reason || "AI moderation result", 240),
+    categories: Array.isArray(parsed?.categories) ? parsed.categories.map(cleanModerationCategory).filter(Boolean).slice(0, 8) : [],
+    confidence: Number(parsed?.confidence || 0),
+    provider,
+    model,
+    raw,
+  };
+}
+
+function parseAiText(result) {
+  if (!result) return "";
+  if (typeof result === "string") return result;
+  if (typeof result.response === "string") return result.response;
+  if (typeof result.result === "string") return result.result;
+  if (typeof result.output_text === "string") return result.output_text;
+  const choice = result.choices?.[0]?.message?.content || result.choices?.[0]?.text;
+  if (typeof choice === "string") return choice;
+  if (Array.isArray(result.output)) {
+    return result.output.flatMap((item) => item.content || []).map((part) => part.text || part).filter(Boolean).join("\n");
+  }
+  return "";
+}
+
+function cleanAiText(value) {
+  return String(value || "").trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+}
+
+function cleanModerationDecision(value) {
+  const decision = String(value || "").trim().toLowerCase();
+  if (["allow", "allowed", "visible"].includes(decision)) return "allow";
+  if (["quarantine", "review", "pending"].includes(decision)) return "quarantine";
+  if (["blocked", "block", "reject"].includes(decision)) return "blocked";
+  return "";
+}
+
+function cleanModerationCategory(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "_").slice(0, 40);
+}
+
+function normalizeModerationText(value) {
+  return String(value || "").toLowerCase().replace(/[\u200B-\u200D\uFEFF]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function containsIllegalMinorSexualContent(normalized) {
+  const compact = normalized.replace(/[^a-zа-яё0-9]+/gi, " ");
+  const minorTerms = /(minor|underage|child|kid|teen|schoolgirl|schoolboy|loli|shota|несовершеннолет|реб[её]нок|детск|школьниц|школьник|малолет)/i;
+  const sexualTerms = /(sex|sexual|porn|nude|naked|cp\b|эрот|секс|порно|обнаж|изнасил|нудс|нюдс)/i;
+  return minorTerms.test(compact) && sexualTerms.test(compact);
+}
+
+function looksLikeSpamText(message) {
+  const text = String(message || "");
+  const noSpace = text.replace(/\s+/g, "");
+  if (noSpace.length > 40 && /(.)\1{12,}/.test(noSpace)) return true;
+  if ((text.match(/[💰🤑🔥✅👉👇🚀]/g) || []).length > 10) return true;
+  if (/\b(?:free\s+money|airdrop|casino|crypto\s+profit|double\s+your|telegram\s+promo|onlyfans\s+leak)\b/i.test(text)) return true;
+  if (/\b(?:заработок\s+без|казино|ставки|крипто\s*доход|раздача\s+денег|быстрый\s+заработок)\b/i.test(text)) return true;
+  return false;
+}
+
+function cleanTargetLanguage(value) {
+  return String(value || "").trim().replace(/[^A-Za-zА-Яа-яЁё\-\s]/g, "").replace(/\s+/g, " ").slice(0, 40);
+}
+
+function cleanRoutePart(url, offsetFromEnd) {
+  const parts = url.pathname.split("/").filter(Boolean);
+  const index = parts.length + offsetFromEnd;
+  return cleanRecordId(decodeURIComponent(parts[index] || ""));
 }
 
 async function handleAdminUsersApi(request, env, url) {

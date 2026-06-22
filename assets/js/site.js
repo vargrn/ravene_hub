@@ -5,6 +5,7 @@
   let logoutBusy = false;
   let communityChatLoader = null;
   let adminPanelLoader = null;
+  let adminChatModerationLoader = null;
 
   const guestAccount = () => ({
     authenticated: false,
@@ -185,6 +186,9 @@
     });
     if (canManageAdmin && adminPanelLoader) {
       adminPanelLoader();
+    }
+    if (canManageAdmin && adminChatModerationLoader) {
+      adminChatModerationLoader();
     }
 
     const profileForm = document.querySelector("[data-profile-form]");
@@ -1180,6 +1184,131 @@
     }
   };
 
+
+  const renderAdminChatQueue = (items) => {
+    const list = document.querySelector("[data-admin-chat-queue]");
+    if (!list) return;
+    if (!items.length) {
+      list.innerHTML = `<p class="form-note">No quarantined messages. Clean air for now.</p>`;
+      return;
+    }
+    list.innerHTML = items.map((item) => `
+      <article class="admin-row admin-chat-row" data-queue-row="${escapeHTML(item.id)}">
+        <div>
+          <strong>${escapeHTML(item.decision === "blocked" ? "Blocked" : "Quarantined")} · ${escapeHTML(item.authorName)}</strong>
+          <span>${escapeHTML(shortDateTime(item.createdAt))} · ${escapeHTML(item.reason || "Needs review")} · ${(item.categories || []).map(escapeHTML).join(", ")}</span>
+          <p class="admin-hidden-body" data-queue-body="${escapeHTML(item.id)}" hidden>${escapeHTML(item.body).replace(/\n/g, "<br>")}</p>
+          <div class="chat-translation" data-queue-translation="${escapeHTML(item.id)}" hidden></div>
+        </div>
+        <div class="admin-row-actions">
+          <button class="mini-btn" type="button" data-show-queue-message="${escapeHTML(item.id)}">Show text</button>
+          <select data-queue-translate-language="${escapeHTML(item.id)}">
+            ${chatLanguageOptions.map((language) => `<option value="${escapeHTML(language)}">${escapeHTML(language)}</option>`).join("")}
+          </select>
+          <button class="mini-btn" type="button" data-translate-queue="${escapeHTML(item.id)}">Translate</button>
+          <button class="mini-btn" type="button" data-approve-queue="${escapeHTML(item.id)}">Approve</button>
+          <button class="mini-btn danger" type="button" data-dismiss-queue="${escapeHTML(item.id)}">Dismiss</button>
+        </div>
+      </article>
+    `).join("");
+  };
+
+  const initAdminChatModeration = async () => {
+    const panel = document.querySelector("[data-admin-chat-panel]");
+    if (!panel) return;
+    const message = document.querySelector("[data-admin-chat-message]");
+    let queueLoaded = false;
+    let queueLoading = false;
+
+    const loadQueue = async () => {
+      if (!currentAccountCache?.permissions?.canManagePosts) return;
+      if (queueLoading) return;
+      queueLoading = true;
+      panel.hidden = false;
+      if (message && !queueLoaded) message.textContent = "Loading chat shield...";
+      try {
+        const data = await api("/api/admin/chat/moderation-queue");
+        renderAdminChatQueue(data.items || []);
+        queueLoaded = true;
+        if (message) message.textContent = "Hidden messages are not shown in public chat.";
+      } catch (error) {
+        if (message) message.textContent = error.message || "Chat moderation is not available.";
+      } finally {
+        queueLoading = false;
+      }
+    };
+
+    adminChatModerationLoader = loadQueue;
+
+    document.addEventListener("click", async (event) => {
+      const showButton = event.target.closest("[data-show-queue-message]");
+      if (showButton && panel.contains(showButton)) {
+        const body = panel.querySelector(`[data-queue-body="${CSS.escape(showButton.dataset.showQueueMessage)}"]`);
+        if (body) {
+          body.hidden = !body.hidden;
+          showButton.textContent = body.hidden ? "Show text" : "Hide text";
+        }
+        return;
+      }
+
+      const translateButton = event.target.closest("[data-translate-queue]");
+      if (translateButton && panel.contains(translateButton)) {
+        const id = translateButton.dataset.translateQueue;
+        const language = panel.querySelector(`[data-queue-translate-language="${CSS.escape(id)}"]`)?.value || "English";
+        const target = panel.querySelector(`[data-queue-translation="${CSS.escape(id)}"]`);
+        translateButton.disabled = true;
+        if (target) {
+          target.hidden = false;
+          target.textContent = "Translating...";
+        }
+        try {
+          const data = await api(`/api/admin/chat/moderation-queue/${encodeURIComponent(id)}/translate`, {
+            method: "POST",
+            body: JSON.stringify({ targetLanguage: language }),
+          });
+          if (target) target.innerHTML = `<strong>${escapeHTML(data.targetLanguage)}:</strong> ${escapeHTML(data.translation).replace(/\n/g, "<br>")}`;
+        } catch (error) {
+          if (target) target.textContent = error.message || "Could not translate message.";
+        } finally {
+          translateButton.disabled = false;
+        }
+        return;
+      }
+
+      const approveButton = event.target.closest("[data-approve-queue]");
+      if (approveButton && panel.contains(approveButton)) {
+        approveButton.disabled = true;
+        try {
+          const data = await api(`/api/admin/chat/moderation-queue/${encodeURIComponent(approveButton.dataset.approveQueue)}/approve`, { method: "POST" });
+          renderAdminChatQueue(data.items || []);
+          if (message) message.textContent = "Message approved and published.";
+          if (communityChatLoader) communityChatLoader();
+        } catch (error) {
+          approveButton.disabled = false;
+          if (message) message.textContent = error.message || "Could not approve message.";
+        }
+        return;
+      }
+
+      const dismissButton = event.target.closest("[data-dismiss-queue]");
+      if (dismissButton && panel.contains(dismissButton)) {
+        dismissButton.disabled = true;
+        try {
+          const data = await api(`/api/admin/chat/moderation-queue/${encodeURIComponent(dismissButton.dataset.dismissQueue)}/dismiss`, { method: "POST" });
+          renderAdminChatQueue(data.items || []);
+          if (message) message.textContent = "Message dismissed.";
+        } catch (error) {
+          dismissButton.disabled = false;
+          if (message) message.textContent = error.message || "Could not dismiss message.";
+        }
+      }
+    });
+
+    if (currentAccountCache?.permissions?.canManagePosts) {
+      await loadQueue();
+    }
+  };
+
   const initProfileToggle = () => {
     const button = document.querySelector("[data-profile-toggle]");
     const form = document.querySelector("[data-profile-form]");
@@ -1209,6 +1338,22 @@
     });
   };
 
+  const chatLanguageOptions = ["English", "Russian", "Polish", "Korean", "Japanese"];
+
+  const chatTranslateControls = (item, source = "message") => {
+    if (!item.canTranslate) return "";
+    const id = escapeHTML(item.id);
+    return `
+      <div class="chat-tools">
+        <select data-chat-translate-language="${id}">
+          ${chatLanguageOptions.map((language) => `<option value="${escapeHTML(language)}">${escapeHTML(language)}</option>`).join("")}
+        </select>
+        <button class="mini-btn" type="button" data-translate-chat="${id}" data-translate-source="${escapeHTML(source)}">Translate</button>
+      </div>
+      <div class="chat-translation" data-chat-translation="${id}" hidden></div>
+    `;
+  };
+
   const renderChatMessages = (messages) => {
     const list = document.querySelector("[data-chat-list]");
     if (!list) return;
@@ -1222,12 +1367,16 @@
         <div class="chat-message-body">
           <div class="comment-item-head"><strong>${escapeHTML(item.authorName)}</strong><span>${escapeHTML(shortDateTime(item.createdAt))}</span></div>
           <p>${escapeHTML(item.body).replace(/\n/g, "<br>")}</p>
-          ${item.canDelete ? `<button class="mini-btn danger" type="button" data-delete-chat="${escapeHTML(item.id)}">Delete</button>` : ""}
+          <div class="chat-actions">
+            ${item.canDelete ? `<button class="mini-btn danger" type="button" data-delete-chat="${escapeHTML(item.id)}">Delete</button>` : ""}
+          </div>
+          ${chatTranslateControls(item)}
         </div>
       </article>
     `).join("");
     list.scrollTop = list.scrollHeight;
   };
+
 
   const initCommunityChat = async () => {
     const chat = document.querySelector("[data-community-chat]");
@@ -1245,7 +1394,7 @@
       try {
         const data = await api("/api/community/chat");
         renderChatMessages(data.messages || []);
-        if (message) message.textContent = "Shared for all users. Yes, the author also sees this chat.";
+        if (message) message.textContent = data.notice || "Shared for all users. Yes, the author also sees this chat.";
       } catch (error) {
         if (message) message.textContent = error.message || "Chat is temporarily unavailable.";
       }
@@ -1263,7 +1412,7 @@
           const data = await api("/api/community/chat", { method: "POST", body: JSON.stringify({ body }) });
           form.reset();
           renderChatMessages(data.messages || []);
-          if (message) message.textContent = "Shared for all users. Yes, the author also sees this chat.";
+          if (message) message.textContent = data.notice || "Shared for all users. Yes, the author also sees this chat.";
         } catch (error) {
           if (message) message.textContent = error.message || "Could not send message.";
         }
@@ -1271,6 +1420,30 @@
     }
 
     document.addEventListener("click", async (event) => {
+      const translateButton = event.target.closest("[data-translate-chat]");
+      if (translateButton && chat.contains(translateButton)) {
+        const id = translateButton.dataset.translateChat;
+        const language = chat.querySelector(`[data-chat-translate-language="${CSS.escape(id)}"]`)?.value || "English";
+        const target = chat.querySelector(`[data-chat-translation="${CSS.escape(id)}"]`);
+        translateButton.disabled = true;
+        if (target) {
+          target.hidden = false;
+          target.textContent = "Translating...";
+        }
+        try {
+          const data = await api(`/api/admin/chat/messages/${encodeURIComponent(id)}/translate`, {
+            method: "POST",
+            body: JSON.stringify({ targetLanguage: language }),
+          });
+          if (target) target.innerHTML = `<strong>${escapeHTML(data.targetLanguage)}:</strong> ${escapeHTML(data.translation).replace(/\n/g, "<br>")}`;
+        } catch (error) {
+          if (target) target.textContent = error.message || "Could not translate message.";
+        } finally {
+          translateButton.disabled = false;
+        }
+        return;
+      }
+
       const button = event.target.closest("[data-delete-chat]");
       if (!button || !chat.contains(button)) return;
       button.disabled = true;
@@ -1333,6 +1506,7 @@
   initProfileToggle();
   initProfileForm();
   initAdminPanel();
+  initAdminChatModeration();
   initPostFeeds();
   initPostDetail();
   initPostLikes();
