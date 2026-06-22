@@ -3164,3 +3164,52 @@ background-size: cover;
     aspect-ratio: 16 / 9 !important;
   }
 }
+
+/* FINAL 2026-06-22: Membership tier cards must match the BioPunk build showcase card. */
+:root {
+  --showcase-card-width: 420px;
+  --showcase-image-height: 231px;
+}
+
+.build-library-layout {
+  grid-template-columns: var(--showcase-card-width) minmax(0, 1fr) !important;
+}
+
+.build-game {
+  width: 100% !important;
+  max-width: var(--showcase-card-width) !important;
+}
+
+.build-game-poster,
+.membership-tiers #tier-1 .tile-image,
+.membership-tiers #tier-2 .tile-image {
+  width: 100% !important;
+  height: var(--showcase-image-height) !important;
+  min-height: var(--showcase-image-height) !important;
+  max-height: var(--showcase-image-height) !important;
+  aspect-ratio: auto !important;
+  object-fit: cover !important;
+  object-position: center !important;
+  display: block !important;
+  flex: 0 0 auto !important;
+}
+
+.membership-tiers {
+  grid-template-columns: repeat(2, minmax(0, var(--showcase-card-width))) !important;
+  max-width: calc((var(--showcase-card-width) * 2) + 64px) !important;
+}
+
+@media (max-width: 980px) {
+  .build-library-layout {
+    grid-template-columns: 1fr !important;
+  }
+
+  .build-game {
+    max-width: var(--showcase-card-width) !important;
+  }
+
+  .membership-tiers {
+    grid-template-columns: minmax(0, 1fr) !important;
+    max-width: var(--showcase-card-width) !important;
+  }
+}
