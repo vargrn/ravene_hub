@@ -56,8 +56,16 @@
               <input id="register-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" />
               <label for="register-password">Password</label>
               <input id="register-password" name="password" type="password" autocomplete="new-password" placeholder="At least 8 characters" />
-              <button class="btn" type="submit">Create account</button>
-              <p class="form-note" data-auth-message="register">Registration creates the same account used for access tiers and Early Access check.</p>
+              <button class="btn" type="submit">Send verification code</button>
+              <p class="form-note" data-auth-message="register">Registration requires a verification code sent to this email.</p>
+            </form>
+            <form class="connect-form auth-panel verification-panel" data-auth-form="verify-register" hidden>
+              <label for="verify-email">Email</label>
+              <input id="verify-email" name="email" type="email" autocomplete="email" readonly />
+              <label for="verify-code">Verification code</label>
+              <input id="verify-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code" />
+              <button class="btn" type="submit">Verify and create account</button>
+              <p class="form-note" data-auth-message="verify-register">Enter the code from the email.</p>
             </form>
             <div class="account-actions" data-auth-only hidden>
               <button class="btn btn-secondary" type="button" data-logout-button hidden>Log out</button>
@@ -71,6 +79,32 @@
               <button class="btn" type="submit">Save profile</button>
               <p class="form-note" data-profile-message>Profile data is attached to the Ravene Hub account.</p>
             </form>
+          </article>
+
+          <article class="glass card connected-accounts-card" id="connected-accounts" data-auth-only hidden>
+            <div class="meta"><span>Account security</span></div>
+            <h2>Connected accounts</h2>
+            <div class="linked-account-list">
+              <div class="linked-account-row" data-link-provider-row="google">
+                <div><strong>Google</strong><span data-link-provider-status="google">Not linked</span></div>
+                <a class="btn btn-secondary linked-account-action" href="/api/account/link/google/start" data-link-provider-button="google">Link Google</a>
+              </div>
+              <div class="linked-account-row" data-link-provider-row="x">
+                <div><strong>X</strong><span data-link-provider-status="x">Not linked</span></div>
+                <a class="btn btn-secondary linked-account-action" href="/api/account/link/x/start" data-link-provider-button="x">Link X</a>
+              </div>
+              <div class="linked-account-row" data-link-provider-row="telegram">
+                <div><strong>Telegram</strong><span data-link-provider-status="telegram">Not linked</span></div>
+                <div class="telegram-link-actions">
+                  <div data-telegram-login-widget></div>
+                  <form class="telegram-code-form" data-telegram-code-form>
+                    <input name="code" type="text" autocomplete="one-time-code" placeholder="Bot code" />
+                    <button class="btn btn-secondary" type="submit">Link code</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+            <p class="form-note" data-account-link-message>Link external accounts only when you want them attached to this Ravene Hub profile.</p>
           </article>
 
           <article class="glass card" data-admin-only hidden>

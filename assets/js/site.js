@@ -270,6 +270,8 @@
       if (fields.publicNote) fields.publicNote.value = account.profile?.publicNote || "";
     }
 
+    renderConnectedAccounts(account);
+
     const cancelAtPeriodEnd = Boolean(account.subscription?.cancelAtPeriodEnd);
     if (renewalNote) renewalNote.hidden = !(showMoonPayNote || cancelAtPeriodEnd);
     if (subscriptionMessage) {
@@ -348,6 +350,126 @@
     guest: "Guest",
   }[role] || "Member");
 
+
+  const providerLabels = {
+    google: "Google",
+    x: "X",
+    telegram: "Telegram",
+    email: "Email",
+    workspace: "Workspace",
+  };
+
+  const identityForProvider = (account, provider) => (account.identities || []).find((item) => item.provider === provider);
+
+  const providerDisplayName = (identity) => {
+    if (!identity) return "Not linked";
+    return identity.provider_username || identity.provider_user_id || "Linked";
+  };
+
+  const setAccountLinkMessageFromUrl = () => {
+    const message = document.querySelector("[data-account-link-message]");
+    if (!message) return;
+    const params = new URLSearchParams(window.location.search);
+    const linked = params.get("linked");
+    const error = params.get("link_error");
+    if (linked) message.textContent = `${providerLabels[linked] || linked} account linked.`;
+    if (error) message.textContent = error;
+  };
+
+  const renderConnectedAccounts = async (account) => {
+    const card = document.querySelector("[data-account-link-message]")?.closest(".connected-accounts-card");
+    if (!card || !account?.authenticated) return;
+
+    ["google", "x", "telegram"].forEach((provider) => {
+      const identity = identityForProvider(account, provider);
+      const status = document.querySelector(`[data-link-provider-status="${provider}"]`);
+      const row = document.querySelector(`[data-link-provider-row="${provider}"]`);
+      const button = document.querySelector(`[data-link-provider-button="${provider}"]`);
+      if (status) status.textContent = providerDisplayName(identity);
+      if (row) row.classList.toggle("is-linked", Boolean(identity));
+      if (button) {
+        button.textContent = identity ? "Linked" : `Link ${providerLabels[provider] || provider}`;
+        button.classList.toggle("is-disabled", Boolean(identity));
+        button.setAttribute("aria-disabled", identity ? "true" : "false");
+        button.addEventListener("click", (event) => {
+          if (button.classList.contains("is-disabled")) event.preventDefault();
+        }, { once: true });
+      }
+    });
+
+    try {
+      const config = await api("/api/account/links/config");
+      ["google", "x"].forEach((provider) => {
+        const button = document.querySelector(`[data-link-provider-button="${provider}"]`);
+        const status = document.querySelector(`[data-link-provider-status="${provider}"]`);
+        const linked = Boolean(identityForProvider(account, provider));
+        if (!button) return;
+        if (!config.providers?.[provider] && !linked) {
+          button.classList.add("is-disabled");
+          button.setAttribute("aria-disabled", "true");
+          button.addEventListener("click", (event) => event.preventDefault(), { once: true });
+          if (status) status.textContent = "Not configured";
+        }
+      });
+      renderTelegramLinkWidget(config, account);
+    } catch (error) {
+      const message = document.querySelector("[data-account-link-message]");
+      if (message) message.textContent = error.message || "Could not load account link settings.";
+    }
+
+    setAccountLinkMessageFromUrl();
+  };
+
+  const renderTelegramLinkWidget = (config, account) => {
+    const container = document.querySelector("[data-telegram-login-widget]");
+    const telegramIdentity = identityForProvider(account, "telegram");
+    if (!container) return;
+    container.innerHTML = "";
+    if (telegramIdentity) {
+      container.hidden = true;
+      return;
+    }
+    container.hidden = false;
+    if (!config.providers?.telegram || !config.telegramBotUsername) {
+      const note = document.createElement("span");
+      note.className = "form-note inline-note";
+      note.textContent = "Widget not configured";
+      container.appendChild(note);
+      return;
+    }
+    const script = document.createElement("script");
+    script.async = true;
+    script.src = "https://telegram.org/js/telegram-widget.js?22";
+    script.setAttribute("data-telegram-login", config.telegramBotUsername);
+    script.setAttribute("data-size", "medium");
+    script.setAttribute("data-auth-url", `${window.location.origin}/api/account/link/telegram/callback`);
+    script.setAttribute("data-request-access", "write");
+    container.appendChild(script);
+  };
+
+  const initTelegramCodeForm = () => {
+    const form = document.querySelector("[data-telegram-code-form]");
+    if (!form) return;
+    const message = document.querySelector("[data-account-link-message]");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const code = String(new FormData(form).get("code") || "").trim();
+      if (!code) return;
+      setFormBusy(form, true);
+      if (message) message.textContent = "Linking Telegram...";
+      try {
+        const data = await api("/api/account/link/telegram-code", { method: "POST", body: JSON.stringify({ code }) });
+        if (message) message.textContent = data.message || "Telegram account linked.";
+        form.reset();
+        await refreshAccount();
+      } catch (error) {
+        if (message) message.textContent = error.message || "Could not link Telegram.";
+      } finally {
+        setFormBusy(form, false);
+      }
+    });
+  };
+
   const refreshAccount = async ({ render = true } = {}) => {
     const version = ++accountRequestVersion;
     const account = await api("/api/me");
@@ -414,6 +536,8 @@
   };
 
   const initPasswordAuth = () => {
+    let pendingRegistrationEmail = "";
+
     document.querySelectorAll('[data-auth-form="login"], [data-auth-form="register"]').forEach((form) => {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -424,13 +548,26 @@
         if (authBusy) return;
         authBusy = true;
         setFormBusy(form, true);
-        if (message) message.textContent = mode === "register" ? "Creating account..." : "Logging in...";
+        if (message) message.textContent = mode === "register" ? "Sending verification code..." : "Logging in...";
 
         try {
-          await api(`/api/auth/${mode}`, {
+          const result = await api(`/api/auth/${mode}`, {
             method: "POST",
             body: JSON.stringify(body),
           });
+          if (mode === "register" && result.pendingVerification) {
+            pendingRegistrationEmail = result.email || body.email || "";
+            const verifyForm = document.querySelector('[data-auth-form="verify-register"]');
+            if (verifyForm) {
+              if (verifyForm.elements.email) verifyForm.elements.email.value = pendingRegistrationEmail;
+              document.querySelectorAll('[data-auth-form="login"], [data-auth-form="register"]').forEach((item) => {
+                item.hidden = true;
+              });
+              verifyForm.hidden = false;
+            }
+            if (message) message.textContent = result.message || "Verification code sent.";
+            return;
+          }
           if (message) message.textContent = mode === "register" ? "Account created." : "Logged in.";
           await refreshAccount();
           form.reset();
@@ -442,6 +579,32 @@
         }
       });
     });
+
+    const verifyForm = document.querySelector('[data-auth-form="verify-register"]');
+    if (verifyForm) {
+      verifyForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const message = document.querySelector('[data-auth-message="verify-register"]');
+        const body = Object.fromEntries(new FormData(verifyForm));
+        body.email = body.email || pendingRegistrationEmail;
+        if (authBusy) return;
+        authBusy = true;
+        setFormBusy(verifyForm, true);
+        if (message) message.textContent = "Verifying code...";
+        try {
+          await api("/api/auth/register/verify", { method: "POST", body: JSON.stringify(body) });
+          if (message) message.textContent = "Account verified.";
+          await refreshAccount();
+          verifyForm.reset();
+          verifyForm.hidden = true;
+        } catch (error) {
+          if (message) message.textContent = error.message || "Could not verify code.";
+        } finally {
+          authBusy = false;
+          setFormBusy(verifyForm, false);
+        }
+      });
+    }
   };
 
   const initLogout = () => {
@@ -1722,6 +1885,7 @@
   initMoonPaySubscriptions();
   initProfileToggle();
   initProfileForm();
+  initTelegramCodeForm();
   initAdminWorkspaceControls();
   initAdminPanel();
   initAdminChatModeration();

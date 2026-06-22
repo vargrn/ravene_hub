@@ -4,6 +4,11 @@ const SESSION_MAX_AGE = SESSION_DAYS * 24 * 60 * 60;
 const BUILD_SESSION_MINUTES = 15;
 const PASSWORD_ITERATIONS = 60000;
 const PASSWORD_ALGORITHM = "pbkdf2-sha256";
+const EMAIL_VERIFICATION_MINUTES = 15;
+const EMAIL_VERIFICATION_RESEND_SECONDS = 60;
+const EMAIL_VERIFICATION_MAX_ATTEMPTS = 6;
+const OAUTH_STATE_MINUTES = 15;
+const TELEGRAM_AUTH_MAX_AGE_SECONDS = 86400;
 const MOONPAY_SUBSCRIPTION_DAYS_FALLBACK = 32;
 const MOONPAY_ALLOWED_MODES = new Set(["test", "live"]);
 const MOONPAY_WIDGET_SCRIPT_URL = "https://embed.hel.io/assets/index-v1.js";
@@ -53,6 +58,14 @@ async function handleApi(request, env, url) {
       return updateAccountProfile(request, env);
     }
 
+    if (url.pathname === "/api/account/links/config" && request.method === "GET") {
+      return accountLinksConfig(request, env);
+    }
+
+    if (url.pathname.startsWith("/api/account/link/")) {
+      return handleAccountLinkApi(request, env, url);
+    }
+
     if (url.pathname === "/api/posts" || url.pathname.startsWith("/api/posts/")) {
       return handlePostsApi(request, env, url);
     }
@@ -87,6 +100,10 @@ async function handleApi(request, env, url) {
 
     if (url.pathname === "/api/auth/register" && request.method === "POST") {
       return registerWithPassword(request, env);
+    }
+
+    if (url.pathname === "/api/auth/register/verify" && request.method === "POST") {
+      return verifyRegistrationCode(request, env);
     }
 
     if (url.pathname === "/api/auth/login" && request.method === "POST") {
@@ -196,6 +213,7 @@ async function currentAccount(request, env) {
       email: sessionUser.email,
       displayName: sessionUser.display_name || sessionUser.email || "Ravene Hub user",
       avatarUrl: sessionUser.avatar_url,
+      emailVerifiedAt: sessionUser.email_verified_at || null,
       createdAt: sessionUser.created_at || null,
       role,
     },
@@ -306,21 +324,110 @@ async function registerWithPassword(request, env) {
   const existingUser = await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(email).first();
   if (existingUser) return json({ error: "Email is already attached to another account" }, { status: 409 });
 
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const existingPending = await env.DB.prepare(
+    "SELECT last_sent_at FROM email_verification_codes WHERE email_normalized = ? AND consumed_at IS NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
+  ).bind(email, nowIso).first().catch((error) => {
+    if (isMissingSchemaError(error, ["email_verification_codes"])) return null;
+    throw error;
+  });
+
+  if (existingPending?.last_sent_at) {
+    const lastSent = new Date(existingPending.last_sent_at).getTime();
+    if (Number.isFinite(lastSent) && Date.now() - lastSent < EMAIL_VERIFICATION_RESEND_SECONDS * 1000) {
+      return json({ error: "Verification code was sent recently. Wait a minute before requesting another one." }, { status: 429 });
+    }
+  }
+
   const passwordRecord = await hashPassword(password);
+  const code = randomNumericCode(6);
+  const codeHash = await sha256(`${email}:${code}`);
+  const expiresAt = addMinutes(now, EMAIL_VERIFICATION_MINUTES).toISOString();
+
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM email_verification_codes WHERE email_normalized = ? AND consumed_at IS NULL").bind(email),
+    env.DB.prepare(
+      `INSERT INTO email_verification_codes
+        (id, email, email_normalized, display_name, password_hash, password_salt, password_iterations, password_algorithm, code_hash, attempts, created_at, expires_at, consumed_at, last_sent_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?)`,
+    ).bind(
+      randomId(),
+      email,
+      email,
+      displayName,
+      passwordRecord.hash,
+      passwordRecord.salt,
+      passwordRecord.iterations,
+      passwordRecord.algorithm,
+      codeHash,
+      nowIso,
+      expiresAt,
+      nowIso,
+    ),
+  ]);
+
+  const delivery = await sendVerificationEmail(env, { email, displayName, code, expiresAt });
+  if (!delivery.ok) {
+    return json({ error: delivery.error || "Email delivery is not configured yet." }, { status: 503 });
+  }
+
+  return json({
+    ok: true,
+    pendingVerification: true,
+    email,
+    expiresAt,
+    devCode: delivery.devCode || undefined,
+    message: "Verification code sent. Check your email.",
+  });
+}
+
+async function verifyRegistrationCode(request, env) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  const code = normalizeCode(body.code);
+  if (!email || !code) return json({ error: "Enter email and verification code" }, { status: 400 });
+
   const now = new Date().toISOString();
+  const pending = await env.DB.prepare(
+    "SELECT * FROM email_verification_codes WHERE email_normalized = ? AND consumed_at IS NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
+  ).bind(email, now).first();
+
+  if (!pending) return json({ error: "Verification code is wrong or expired" }, { status: 401 });
+  if (Number(pending.attempts || 0) >= EMAIL_VERIFICATION_MAX_ATTEMPTS) {
+    return json({ error: "Too many verification attempts. Request a new code." }, { status: 429 });
+  }
+
+  const codeHash = await sha256(`${email}:${code}`);
+  if (codeHash !== pending.code_hash) {
+    await env.DB.prepare("UPDATE email_verification_codes SET attempts = attempts + 1 WHERE id = ?").bind(pending.id).run();
+    return json({ error: "Verification code is wrong or expired" }, { status: 401 });
+  }
+
+  const existingCredential = await env.DB.prepare(
+    "SELECT id FROM user_credentials WHERE email_normalized = ? LIMIT 1",
+  ).bind(email).first();
+  if (existingCredential) return json({ error: "Email is already registered" }, { status: 409 });
+
+  const existingUser = await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(email).first();
+  if (existingUser) return json({ error: "Email is already attached to another account" }, { status: 409 });
+
   const user = {
     id: randomId(),
     email,
-    display_name: displayName,
+    display_name: cleanDisplayName(pending.display_name) || email.split("@")[0],
     avatar_url: null,
     created_at: now,
     updated_at: now,
+    email_verified_at: now,
   };
 
   await env.DB.batch([
     env.DB.prepare(
-      "INSERT INTO users (id, email, display_name, avatar_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-    ).bind(user.id, user.email, user.display_name, user.avatar_url, user.created_at, user.updated_at),
+      "INSERT INTO users (id, email, display_name, avatar_url, created_at, updated_at, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).bind(user.id, user.email, user.display_name, user.avatar_url, user.created_at, user.updated_at, user.email_verified_at),
     env.DB.prepare(
       "INSERT INTO user_identities (id, user_id, provider, provider_user_id, provider_username, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
     ).bind(randomId(), user.id, "email", email, email, now, now),
@@ -333,13 +440,14 @@ async function registerWithPassword(request, env) {
       user.id,
       email,
       email,
-      passwordRecord.hash,
-      passwordRecord.salt,
-      passwordRecord.iterations,
-      passwordRecord.algorithm,
+      pending.password_hash,
+      pending.password_salt,
+      Number(pending.password_iterations || PASSWORD_ITERATIONS),
+      pending.password_algorithm || PASSWORD_ALGORITHM,
       now,
       now,
     ),
+    env.DB.prepare("UPDATE email_verification_codes SET consumed_at = ? WHERE id = ?").bind(now, pending.id),
   ]);
 
   return createSessionResponse(request, env, user);
@@ -532,6 +640,290 @@ async function updateAccountProfile(request, env) {
   ]);
 
   return getAccountProfile(request, env);
+}
+
+async function accountLinksConfig(request, env) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+  return json({
+    providers: {
+      google: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
+      x: Boolean(env.X_CLIENT_ID && env.X_CLIENT_SECRET),
+      telegram: Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_BOT_USERNAME),
+      telegramCode: true,
+    },
+    telegramBotUsername: env.TELEGRAM_BOT_USERNAME || "",
+  });
+}
+
+async function handleAccountLinkApi(request, env, url) {
+  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+
+  const path = url.pathname;
+  if (path === "/api/account/link/google/start" && request.method === "GET") return startOAuthLink(request, env, "google");
+  if (path === "/api/account/link/google/callback" && request.method === "GET") return finishGoogleLink(request, env, url);
+  if (path === "/api/account/link/x/start" && request.method === "GET") return startOAuthLink(request, env, "x");
+  if (path === "/api/account/link/x/callback" && request.method === "GET") return finishXLink(request, env, url);
+  if (path === "/api/account/link/telegram/callback" && request.method === "GET") return finishTelegramWidgetLink(request, env, url);
+  if (path === "/api/account/link/telegram-code" && request.method === "POST") return linkTelegramCode(request, env);
+
+  return json({ error: "Not found" }, { status: 404 });
+}
+
+function oauthProviderConfig(env, provider, origin) {
+  if (provider === "google") {
+    return {
+      provider,
+      clientId: env.GOOGLE_CLIENT_ID,
+      clientSecret: env.GOOGLE_CLIENT_SECRET,
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      scope: "openid email profile",
+      redirectUri: `${origin}/api/account/link/google/callback`,
+    };
+  }
+  if (provider === "x") {
+    return {
+      provider,
+      clientId: env.X_CLIENT_ID,
+      clientSecret: env.X_CLIENT_SECRET,
+      authUrl: "https://twitter.com/i/oauth2/authorize",
+      tokenUrl: "https://api.x.com/2/oauth2/token",
+      scope: "users.read tweet.read",
+      redirectUri: `${origin}/api/account/link/x/callback`,
+    };
+  }
+  return null;
+}
+
+async function startOAuthLink(request, env, provider) {
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return redirectResponse("/account.html?link=signin#connect-account");
+
+  const origin = new URL(request.url).origin;
+  const config = oauthProviderConfig(env, provider, origin);
+  if (!config?.clientId || !config?.clientSecret) {
+    return redirectResponse(`/account.html?link_error=${encodeURIComponent(`${provider} linking is not configured yet`)}#connected-accounts`);
+  }
+
+  const state = randomToken();
+  const codeVerifier = base64Url(randomBytes(32));
+  const codeChallenge = await sha256Base64Url(codeVerifier);
+  const now = new Date();
+  const expiresAt = addMinutes(now, OAUTH_STATE_MINUTES).toISOString();
+
+  await env.DB.prepare(
+    `INSERT INTO oauth_link_states
+      (id, user_id, provider, state_hash, code_verifier, redirect_after, created_at, expires_at, consumed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+  ).bind(
+    randomId(),
+    account.user.id,
+    provider,
+    await sha256(state),
+    codeVerifier,
+    "/account.html#connected-accounts",
+    now.toISOString(),
+    expiresAt,
+  ).run();
+
+  const authUrl = new URL(config.authUrl);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("client_id", config.clientId);
+  authUrl.searchParams.set("redirect_uri", config.redirectUri);
+  authUrl.searchParams.set("scope", config.scope);
+  authUrl.searchParams.set("state", state);
+  authUrl.searchParams.set("code_challenge", codeChallenge);
+  authUrl.searchParams.set("code_challenge_method", "S256");
+  if (provider === "google") {
+    authUrl.searchParams.set("access_type", "online");
+    authUrl.searchParams.set("prompt", "select_account");
+  }
+
+  return redirectResponse(authUrl.toString());
+}
+
+async function readOAuthState(request, env, url, provider) {
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) throw new Error("Sign in first");
+  const state = String(url.searchParams.get("state") || "");
+  const code = String(url.searchParams.get("code") || "");
+  if (!state || !code) throw new Error("OAuth callback is missing state or code");
+
+  const stateHash = await sha256(state);
+  const now = new Date().toISOString();
+  const row = await env.DB.prepare(
+    `SELECT * FROM oauth_link_states
+     WHERE provider = ? AND state_hash = ? AND consumed_at IS NULL AND expires_at > ?
+     LIMIT 1`,
+  ).bind(provider, stateHash, now).first();
+
+  if (!row || row.user_id !== account.user.id) throw new Error("OAuth state is wrong or expired");
+  await env.DB.prepare("UPDATE oauth_link_states SET consumed_at = ? WHERE id = ?").bind(now, row.id).run();
+  return { account, row, code };
+}
+
+async function finishGoogleLink(request, env, url) {
+  try {
+    const origin = new URL(request.url).origin;
+    const config = oauthProviderConfig(env, "google", origin);
+    const { account, row, code } = await readOAuthState(request, env, url, "google");
+    const token = await exchangeOAuthToken(config, code, row.code_verifier, false);
+    const profileResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+      headers: { authorization: `Bearer ${token.access_token}` },
+    });
+    if (!profileResponse.ok) throw new Error("Could not read Google profile");
+    const profile = await profileResponse.json();
+    const providerUserId = String(profile.sub || "");
+    if (!providerUserId) throw new Error("Google profile did not return an account id");
+    await linkExternalIdentity(env, account.user.id, {
+      provider: "google",
+      providerUserId,
+      providerUsername: profile.email || profile.name || providerUserId,
+    });
+    if (!account.user.avatarUrl && profile.picture) {
+      await env.DB.prepare("UPDATE users SET avatar_url = COALESCE(avatar_url, ?), updated_at = ? WHERE id = ?")
+        .bind(cleanUrl(profile.picture, 500) || null, new Date().toISOString(), account.user.id)
+        .run();
+    }
+    return redirectResponse("/account.html?linked=google#connected-accounts");
+  } catch (error) {
+    return redirectResponse(`/account.html?link_error=${encodeURIComponent(error.message || "Could not link Google")}#connected-accounts`);
+  }
+}
+
+async function finishXLink(request, env, url) {
+  try {
+    const origin = new URL(request.url).origin;
+    const config = oauthProviderConfig(env, "x", origin);
+    const { account, row, code } = await readOAuthState(request, env, url, "x");
+    const token = await exchangeOAuthToken(config, code, row.code_verifier, true);
+    const profileResponse = await fetch("https://api.x.com/2/users/me?user.fields=username,name,profile_image_url", {
+      headers: { authorization: `Bearer ${token.access_token}` },
+    });
+    if (!profileResponse.ok) throw new Error("Could not read X profile");
+    const profile = await profileResponse.json();
+    const data = profile.data || {};
+    const providerUserId = String(data.id || "");
+    if (!providerUserId) throw new Error("X profile did not return an account id");
+    await linkExternalIdentity(env, account.user.id, {
+      provider: "x",
+      providerUserId,
+      providerUsername: data.username ? `@${data.username}` : providerUserId,
+    });
+    return redirectResponse("/account.html?linked=x#connected-accounts");
+  } catch (error) {
+    return redirectResponse(`/account.html?link_error=${encodeURIComponent(error.message || "Could not link X")}#connected-accounts`);
+  }
+}
+
+async function exchangeOAuthToken(config, code, codeVerifier, useBasicAuth) {
+  if (!config?.clientId || !config?.clientSecret) throw new Error(`${config?.provider || "OAuth"} linking is not configured yet`);
+  const body = new URLSearchParams();
+  body.set("grant_type", "authorization_code");
+  body.set("code", code);
+  body.set("redirect_uri", config.redirectUri);
+  body.set("code_verifier", codeVerifier);
+  if (!useBasicAuth) {
+    body.set("client_id", config.clientId);
+    body.set("client_secret", config.clientSecret);
+  }
+  const headers = { "content-type": "application/x-www-form-urlencoded" };
+  if (useBasicAuth) headers.authorization = `Basic ${btoa(`${config.clientId}:${config.clientSecret}`)}`;
+  const response = await fetch(config.tokenUrl, { method: "POST", headers, body });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.access_token) throw new Error(data.error_description || data.error || `Could not exchange ${config.provider} code`);
+  return data;
+}
+
+async function finishTelegramWidgetLink(request, env, url) {
+  try {
+    const account = await currentAccount(request, env);
+    if (!account.authenticated) throw new Error("Sign in first");
+    const data = Object.fromEntries(url.searchParams.entries());
+    const profile = await verifyTelegramAuth(env, data);
+    await linkExternalIdentity(env, account.user.id, {
+      provider: "telegram",
+      providerUserId: profile.id,
+      providerUsername: profile.username ? `@${profile.username}` : [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.id,
+    });
+    return redirectResponse("/account.html?linked=telegram#connected-accounts");
+  } catch (error) {
+    return redirectResponse(`/account.html?link_error=${encodeURIComponent(error.message || "Could not link Telegram")}#connected-accounts`);
+  }
+}
+
+async function linkTelegramCode(request, env) {
+  const account = await currentAccount(request, env);
+  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
+  const body = await readJson(request);
+  const code = normalizeCode(body.code);
+  if (!code) return json({ error: "Enter the code from the Telegram bot" }, { status: 400 });
+
+  const now = new Date().toISOString();
+  const row = await env.DB.prepare(
+    "SELECT * FROM login_codes WHERE code_hash = ? AND consumed_at IS NULL AND expires_at > ? LIMIT 1",
+  ).bind(await sha256(code), now).first();
+  if (!row || !row.telegram_id) return json({ error: "Telegram code is wrong or expired" }, { status: 401 });
+
+  await linkExternalIdentity(env, account.user.id, {
+    provider: "telegram",
+    providerUserId: row.telegram_id,
+    providerUsername: row.telegram_username ? `@${row.telegram_username}` : row.telegram_id,
+  });
+  await env.DB.prepare("UPDATE login_codes SET consumed_at = ?, user_id = ? WHERE id = ?").bind(now, account.user.id, row.id).run();
+  return json({ ok: true, message: "Telegram account linked." });
+}
+
+async function linkExternalIdentity(env, userId, identity) {
+  const now = new Date().toISOString();
+  const existing = await env.DB.prepare(
+    "SELECT id, user_id FROM user_identities WHERE provider = ? AND provider_user_id = ? LIMIT 1",
+  ).bind(identity.provider, identity.providerUserId).first();
+
+  if (existing && existing.user_id !== userId) {
+    throw new Error("This external account is already linked to another Ravene Hub account");
+  }
+
+  if (existing) {
+    await env.DB.prepare("UPDATE user_identities SET provider_username = ?, updated_at = ? WHERE id = ?")
+      .bind(identity.providerUsername || null, now, existing.id)
+      .run();
+    return;
+  }
+
+  await env.DB.prepare(
+    "INSERT INTO user_identities (id, user_id, provider, provider_user_id, provider_username, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).bind(randomId(), userId, identity.provider, identity.providerUserId, identity.providerUsername || null, now, now).run();
+}
+
+async function verifyTelegramAuth(env, data) {
+  if (!env.TELEGRAM_BOT_TOKEN) throw new Error("Telegram linking is not configured yet");
+  const receivedHash = String(data.hash || "");
+  if (!receivedHash) throw new Error("Telegram login hash is missing");
+
+  const authDate = Number(data.auth_date || 0);
+  if (!authDate || Date.now() / 1000 - authDate > TELEGRAM_AUTH_MAX_AGE_SECONDS) {
+    throw new Error("Telegram login is expired");
+  }
+
+  const checkString = Object.keys(data)
+    .filter((key) => key !== "hash" && data[key] !== undefined && data[key] !== null && data[key] !== "")
+    .sort()
+    .map((key) => `${key}=${data[key]}`)
+    .join("\n");
+  const secretKey = await sha256Bytes(env.TELEGRAM_BOT_TOKEN);
+  const expected = await hmacSha256HexWithKey(secretKey, checkString);
+  if (!safeHexEqual(expected, receivedHash)) throw new Error("Telegram login signature is wrong");
+
+  return {
+    id: String(data.id || ""),
+    username: String(data.username || ""),
+    first_name: String(data.first_name || ""),
+    last_name: String(data.last_name || ""),
+    photo_url: String(data.photo_url || ""),
+  };
 }
 
 async function handlePostsApi(request, env, url) {
@@ -3108,6 +3500,104 @@ function subscriptionControlsMigrationMissingResponse() {
     { error: "Subscription controls migration is missing. Apply db/migrations/0007_subscription_controls.sql." },
     { status: 503 },
   );
+}
+
+function redirectResponse(location, status = 302) {
+  return new Response(null, { status, headers: { location } });
+}
+
+function randomBytes(length) {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return bytes;
+}
+
+function randomNumericCode(length = 6) {
+  let code = "";
+  const bytes = randomBytes(length);
+  for (const byte of bytes) code += String(byte % 10);
+  return code;
+}
+
+async function sha256Bytes(value) {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return new Uint8Array(digest);
+}
+
+async function sha256Base64Url(value) {
+  return base64Url(await sha256Bytes(value));
+}
+
+async function hmacSha256HexWithKey(rawKeyBytes, message) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    rawKeyBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function sendVerificationEmail(env, { email, displayName, code, expiresAt }) {
+  if (env.DEV_EMAIL_CODES === "1") {
+    console.log(`Ravene Hub verification code for ${email}: ${code}`);
+    return { ok: true, devCode: code };
+  }
+
+  if (!env.RESEND_API_KEY || !env.EMAIL_FROM) {
+    return { ok: false, error: "Email delivery is not configured yet. Add RESEND_API_KEY and EMAIL_FROM secrets before enabling email registration." };
+  }
+
+  const subject = "Your Ravene Hub verification code";
+  const safeName = cleanDisplayName(displayName) || "there";
+  const text = [
+    `Hi ${safeName},`,
+    "",
+    `Your Ravene Hub verification code is: ${code}`,
+    "",
+    `It expires at ${new Date(expiresAt).toUTCString()}.`,
+    "If you did not request this account, you can ignore this email.",
+  ].join("\n");
+
+  const html = `
+    <div style="font-family:Inter,Arial,sans-serif;background:#05070d;color:#e5eaf2;padding:28px;line-height:1.5">
+      <div style="max-width:520px;margin:0 auto;border:1px solid #2b3442;background:#101620;padding:24px">
+        <p style="color:#9aa5b4;margin:0 0 12px">Ravene Hub</p>
+        <h1 style="font-size:24px;margin:0 0 16px;color:#f3f6fb">Verification code</h1>
+        <p>Hi ${escapeEmailHtml(safeName)},</p>
+        <p>Your Ravene Hub verification code is:</p>
+        <p style="font-size:32px;letter-spacing:8px;font-weight:700;margin:22px 0;color:#ffffff">${code}</p>
+        <p style="color:#b8c2d2">It expires at ${escapeEmailHtml(new Date(expiresAt).toUTCString())}.</p>
+        <p style="color:#7d8794;font-size:13px">If you did not request this account, you can ignore this email.</p>
+      </div>
+    </div>`;
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ from: env.EMAIL_FROM, to: [email], subject, text, html }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    return { ok: false, error: data.message || data.error || "Could not send verification email." };
+  }
+  return { ok: true };
+}
+
+function escapeEmailHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 async function readJson(request) {

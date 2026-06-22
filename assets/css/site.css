@@ -4188,3 +4188,127 @@ background-size: cover;
     grid-template-columns: 1fr;
   }
 }
+
+/* 2026-06-22: external account links and email verification. */
+.connected-accounts-card {
+  display: grid;
+  gap: 12px;
+}
+
+.linked-account-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.linked-account-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 13px 14px;
+  border: 1px solid rgba(232, 238, 248, 0.12);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01)),
+    rgba(5, 8, 14, 0.44);
+}
+
+.linked-account-row strong,
+.linked-account-row span {
+  display: block;
+}
+
+.linked-account-row strong {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.linked-account-row span {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.linked-account-row.is-linked {
+  border-color: rgba(180, 226, 186, 0.20);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(180, 226, 186, 0.055), transparent 30%),
+    rgba(5, 8, 14, 0.48);
+}
+
+.linked-account-action {
+  min-width: 118px;
+  text-align: center;
+  text-decoration: none;
+}
+
+.linked-account-action.is-disabled,
+.linked-account-action[aria-disabled="true"] {
+  opacity: 0.52;
+  cursor: default;
+  pointer-events: none;
+}
+
+.telegram-link-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.telegram-code-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.telegram-code-form input {
+  width: 104px;
+  min-width: 0;
+  height: 42px;
+  border: 1px solid var(--line-soft);
+  background: rgba(4, 7, 13, 0.54);
+  color: var(--text);
+  padding: 0 10px;
+  outline: none;
+  font: inherit;
+}
+
+.telegram-code-form input:focus {
+  border-color: rgba(184, 212, 255, 0.42);
+  box-shadow: 0 0 0 3px rgba(184, 212, 255, 0.08);
+}
+
+.inline-note {
+  display: inline-block;
+  min-height: 0;
+  padding: 8px 0;
+}
+
+.verification-panel input[readonly] {
+  color: var(--text-muted);
+  background: rgba(4, 7, 13, 0.34);
+}
+
+@media (max-width: 760px) {
+  .linked-account-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .telegram-link-actions {
+    justify-content: flex-start;
+  }
+
+  .telegram-code-form {
+    width: 100%;
+  }
+
+  .telegram-code-form input {
+    flex: 1 1 auto;
+    width: auto;
+  }
+}
