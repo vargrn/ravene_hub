@@ -127,7 +127,6 @@
       setGuestOnlyVisible(true);
       resetPrivilegedPanels();
       setText("[data-account-state]", "Setup required");
-      setText("[data-account-summary]", "Account service is temporarily unavailable. Please try again after the current site update is applied.");
       if (renewalNote) renewalNote.hidden = true;
       if (cancelRenewalButton) cancelRenewalButton.hidden = true;
       if (resumeRenewalButton) resumeRenewalButton.hidden = true;
@@ -141,7 +140,6 @@
       setGuestOnlyVisible(true);
       resetPrivilegedPanels();
       setText("[data-account-state]", "Not connected");
-      setText("[data-account-summary]", "Log in to an existing account or create a new browser account.");
       setText("[data-account-name]", "Not connected");
       setText("[data-account-tier]", "No active tier");
       setText("[data-account-expires]", "-");
@@ -166,11 +164,6 @@
     const paymentSource = account.subscription?.paymentSource || account.subscription?.source || null;
     const showMoonPayNote = tier > 0 && paymentSource === "moonpay";
     setText("[data-account-state]", "Connected");
-    setText("[data-account-summary]", tier > 0
-      ? renewalStatus === "cancelled"
-        ? "Account is connected. Paid access remains active until the expiry date."
-        : "Account is connected and active access was found."
-      : "Account is connected. No active membership tier is attached yet.");
     setText("[data-account-name]", account.user?.displayName || "Connected account");
     setText("[data-account-tier]", tier > 0 ? `Tier ${tier}` : "No active tier");
     setText("[data-account-expires]", formatDate(account.subscription?.expiresAt));
@@ -300,7 +293,6 @@
     setGuestOnlyVisible(true);
     resetPrivilegedPanels();
     setText("[data-account-state]", "Local preview");
-    setText("[data-account-summary]", "Open the hosted Worker build to check account status.");
     document.querySelectorAll("[data-auth-gate], [data-auth-trigger]").forEach((item) => {
       item.hidden = false;
     });
