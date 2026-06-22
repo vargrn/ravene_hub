@@ -3748,3 +3748,77 @@ background-size: cover;
     flex: 1 1 auto;
   }
 }
+
+/* FINAL 2026-06-22: responsive header/footer stay usable on narrow screens. */
+@media (max-width: 680px) {
+  :root {
+    --topbar-height: 116px;
+  }
+
+  .topbar-inner {
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px 14px;
+    padding: 12px 14px 10px;
+  }
+
+  .brand {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .brand-name strong {
+    white-space: nowrap;
+  }
+
+  .nav {
+    display: flex;
+    width: 100%;
+    justify-content: center;
+    gap: clamp(12px, 4vw, 18px);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding: 0 2px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .nav a {
+    flex: 0 0 auto;
+    padding: 8px 0 10px;
+  }
+
+  .nav a::after {
+    bottom: 2px;
+  }
+
+  .footer {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: nowrap;
+    gap: clamp(8px, 3vw, 16px);
+    padding: 18px 14px;
+    font-size: clamp(10px, 2.85vw, 12px);
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .footer a,
+  .footer span {
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-width: 380px) {
+  .nav {
+    justify-content: flex-start;
+  }
+
+  .footer {
+    gap: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
