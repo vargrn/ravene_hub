@@ -366,6 +366,8 @@
     return identity.provider_username || identity.provider_user_id || "Linked";
   };
 
+  const providerStateText = (identity) => identity ? `Linked · ${providerDisplayName(identity)}` : "Not linked";
+
   const setAccountLinkMessageFromUrl = () => {
     const message = document.querySelector("[data-account-link-message]");
     if (!message) return;
@@ -385,7 +387,7 @@
       const status = document.querySelector(`[data-link-provider-status="${provider}"]`);
       const row = document.querySelector(`[data-link-provider-row="${provider}"]`);
       const button = document.querySelector(`[data-link-provider-button="${provider}"]`);
-      if (status) status.textContent = providerDisplayName(identity);
+      if (status) status.textContent = providerStateText(identity);
       if (row) row.classList.toggle("is-linked", Boolean(identity));
       if (button) {
         button.textContent = identity ? "Linked" : `Link ${providerLabels[provider] || provider}`;
@@ -396,6 +398,9 @@
         }, { once: true });
       }
     });
+
+    const telegramCodeForm = document.querySelector("[data-telegram-code-form]");
+    if (telegramCodeForm) telegramCodeForm.hidden = Boolean(identityForProvider(account, "telegram"));
 
     try {
       const config = await api("/api/account/links/config");

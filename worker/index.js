@@ -326,6 +326,48 @@ async function registerWithPassword(request, env) {
 
   const now = new Date();
   const nowIso = now.toISOString();
+  const verificationRequired = env.EMAIL_VERIFICATION_REQUIRED === "1";
+
+  if (!verificationRequired) {
+    const passwordRecord = await hashPassword(password);
+    const user = {
+      id: randomId(),
+      email,
+      display_name: displayName,
+      avatar_url: null,
+      created_at: nowIso,
+      updated_at: nowIso,
+      email_verified_at: null,
+    };
+
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO users (id, email, display_name, avatar_url, created_at, updated_at, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ).bind(user.id, user.email, user.display_name, user.avatar_url, user.created_at, user.updated_at, user.email_verified_at),
+      env.DB.prepare(
+        "INSERT INTO user_identities (id, user_id, provider, provider_user_id, provider_username, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ).bind(randomId(), user.id, "email", email, email, nowIso, nowIso),
+      env.DB.prepare(
+        `INSERT INTO user_credentials
+          (id, user_id, email, email_normalized, password_hash, password_salt, password_iterations, password_algorithm, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        randomId(),
+        user.id,
+        email,
+        email,
+        passwordRecord.hash,
+        passwordRecord.salt,
+        passwordRecord.iterations,
+        passwordRecord.algorithm,
+        nowIso,
+        nowIso,
+      ),
+    ]);
+
+    return createSessionResponse(request, env, user);
+  }
+
   const existingPending = await env.DB.prepare(
     "SELECT last_sent_at FROM email_verification_codes WHERE email_normalized = ? AND consumed_at IS NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
   ).bind(email, nowIso).first().catch((error) => {
