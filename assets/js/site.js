@@ -984,7 +984,7 @@
       item.textContent = String(count);
     });
     document.querySelectorAll("[data-comment-summary]").forEach((item) => {
-      item.textContent = `${count} ${count === 1 ? "comment" : "comments"}`;
+      item.textContent = `Comments ${count}`;
     });
   };
 
