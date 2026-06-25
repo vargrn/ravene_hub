@@ -176,126 +176,6 @@
     document.head.appendChild(script);
   });
 
-
-
-  const tierActionBaseDetails = {
-    1: "Early access posts and extra materials.",
-    2: "Playable builds plus Tier 1 benefits.",
-  };
-
-  const hideAccountMembershipSettings = () => {
-    const panel = document.querySelector("[data-tier-settings]");
-    const checkout = document.querySelector("[data-account-tier-checkout]");
-    if (panel) panel.hidden = true;
-    if (checkout) {
-      checkout.hidden = true;
-      checkout.innerHTML = "";
-    }
-    document.querySelectorAll("[data-account-tier-action]").forEach((button) => {
-      button.disabled = true;
-      button.classList.remove("is-current", "is-actionable");
-    });
-    const cancelTierButton = document.querySelector("[data-cancel-tier-button]");
-    const resumeTierButton = document.querySelector("[data-resume-tier-button]");
-    if (cancelTierButton) cancelTierButton.hidden = true;
-    if (resumeTierButton) resumeTierButton.hidden = true;
-  };
-
-  const renderAccountMembershipSettings = (account) => {
-    const panel = document.querySelector("[data-tier-settings]");
-    if (!panel) return;
-
-    if (!account?.authenticated) {
-      hideAccountMembershipSettings();
-      return;
-    }
-
-    const subscription = account.subscription || {};
-    const activeTier = Number(subscription.tier || 0);
-    const scheduled = subscription.scheduledDowngrade || null;
-    const scheduledTier = Number(scheduled?.tier || 0);
-    const cancelAtPeriodEnd = Boolean(subscription.cancelAtPeriodEnd);
-    const source = subscription.paymentSource || subscription.source || null;
-    const renewalStatus = subscription.renewalStatus || subscription.status || "none";
-
-    panel.hidden = false;
-    setText("[data-settings-tier]", activeTier > 0 ? `Tier ${activeTier}` : "No active tier");
-    setText("[data-settings-expires]", formatDate(subscription.expiresAt));
-    setText("[data-settings-renewal]", activeTier <= 0
-      ? "-"
-      : cancelAtPeriodEnd
-        ? "Cancelled after current period"
-        : source === "moonpay"
-          ? "Active"
-          : renewalStatusLabel(renewalStatus, activeTier));
-
-    const scheduledWrap = document.querySelector("[data-settings-scheduled-wrap]");
-    if (scheduledWrap) scheduledWrap.hidden = !scheduledTier;
-    if (scheduledTier) {
-      setText("[data-settings-scheduled]", `Tier ${scheduledTier} from ${formatDate(scheduled.startsAt)}`);
-    }
-
-    const message = document.querySelector("[data-tier-settings-message]");
-    if (message) {
-      message.textContent = activeTier <= 0
-        ? "Choose Tier 1 or Tier 2 to start a membership."
-        : scheduledTier
-          ? `Tier ${scheduledTier} is scheduled after the current period. Choose Tier ${activeTier} to replace that scheduled change, or choose another tier to change again.`
-          : cancelAtPeriodEnd
-            ? `Renewal is cancelled. Paid access remains until ${formatDate(subscription.expiresAt)}.`
-            : "Choose another tier to switch. Cancel tier stops renewal after the paid period.";
-    }
-
-    document.querySelectorAll("[data-account-tier-action]").forEach((button) => {
-      const targetTier = Number(button.dataset.accountTierAction || 0);
-      const title = button.querySelector("[data-tier-action-title]");
-      const detail = button.querySelector("[data-tier-action-detail]");
-      let nextTitle = `Tier ${targetTier}`;
-      let nextDetail = tierActionBaseDetails[targetTier] || "Monthly membership.";
-      let disabled = false;
-
-      if (!targetTier) {
-        disabled = true;
-      } else if (activeTier <= 0) {
-        nextTitle = `Start Tier ${targetTier}`;
-      } else if (targetTier === activeTier) {
-        if (scheduledTier && scheduledTier < activeTier) {
-          nextTitle = `Keep Tier ${targetTier}`;
-          nextDetail = `Replaces the scheduled Tier ${scheduledTier} change after payment confirmation.`;
-        } else {
-          nextTitle = `Current Tier ${targetTier}`;
-          nextDetail = cancelAtPeriodEnd
-            ? `Renewal is cancelled. Access remains until ${formatDate(subscription.expiresAt)}.`
-            : "This tier is active now.";
-          disabled = true;
-        }
-      } else if (targetTier > activeTier) {
-        nextTitle = `Upgrade to Tier ${targetTier}`;
-        nextDetail = "Activates after MoonPay confirms payment; lower tier access is replaced.";
-      } else {
-        nextTitle = `Switch to Tier ${targetTier}`;
-        nextDetail = `Current Tier ${activeTier} remains active until ${formatDate(subscription.expiresAt)}; Tier ${targetTier} starts after that.`;
-      }
-
-      if (title) title.textContent = nextTitle;
-      if (detail) detail.textContent = nextDetail;
-      button.disabled = disabled;
-      button.classList.toggle("is-current", targetTier === activeTier);
-      button.classList.toggle("is-actionable", !disabled);
-    });
-
-    const cancelTierButton = document.querySelector("[data-cancel-tier-button]");
-    const resumeTierButton = document.querySelector("[data-resume-tier-button]");
-    if (cancelTierButton) {
-      cancelTierButton.hidden = !subscription.canCancelRenewal;
-      cancelTierButton.disabled = false;
-    }
-    if (resumeTierButton) {
-      resumeTierButton.hidden = !subscription.canResumeRenewal;
-      resumeTierButton.disabled = false;
-    }
-  };
-
   const renderAccount = (account) => {
     const authenticated = Boolean(account?.authenticated);
     setAuthNavVisible(authenticated);
@@ -305,8 +185,6 @@
     const subscriptionMessage = document.querySelector("[data-subscription-message]");
     const cancelRenewalButton = document.querySelector("[data-cancel-renewal-button]");
     const resumeRenewalButton = document.querySelector("[data-resume-renewal-button]");
-    const cancelTierButton = document.querySelector("[data-cancel-tier-button]");
-    const resumeTierButton = document.querySelector("[data-resume-tier-button]");
     if (!panel) return;
     const accountStateHeading = document.querySelector("[data-account-state]");
 
@@ -322,9 +200,6 @@
       if (renewalNote) renewalNote.hidden = true;
       if (cancelRenewalButton) cancelRenewalButton.hidden = true;
       if (resumeRenewalButton) resumeRenewalButton.hidden = true;
-      if (cancelTierButton) cancelTierButton.hidden = true;
-      if (resumeTierButton) resumeTierButton.hidden = true;
-      hideAccountMembershipSettings();
       const profileForm = document.querySelector("[data-profile-form]");
       if (profileForm) profileForm.hidden = true;
       return;
@@ -345,9 +220,6 @@
       if (renewalNote) renewalNote.hidden = true;
       if (cancelRenewalButton) cancelRenewalButton.hidden = true;
       if (resumeRenewalButton) resumeRenewalButton.hidden = true;
-      if (cancelTierButton) cancelTierButton.hidden = true;
-      if (resumeTierButton) resumeTierButton.hidden = true;
-      hideAccountMembershipSettings();
       const profileForm = document.querySelector("[data-profile-form]");
       if (profileForm) profileForm.hidden = true;
       document.querySelectorAll("[data-auth-gate], [data-auth-trigger]").forEach((item) => {
@@ -423,7 +295,6 @@
       resumeRenewalButton.hidden = !account.subscription?.canResumeRenewal;
       resumeRenewalButton.disabled = false;
     }
-    renderAccountMembershipSettings(account);
 
     document.querySelectorAll("[data-tier-indicator]").forEach((item) => {
       item.classList.toggle("is-unlocked", tier >= Number(item.dataset.tierIndicator || 0));
@@ -787,207 +658,31 @@
   };
 
   const initRenewalControls = () => {
-    const bindRenewalButton = (selector, endpoint, workingText, options = {}) => {
-      const buttons = document.querySelectorAll(selector);
-      if (!buttons.length) return;
+    const bindRenewalButton = (selector, endpoint, workingText) => {
+      const button = document.querySelector(selector);
+      if (!button) return;
 
-      buttons.forEach((button) => {
-        button.addEventListener("click", async () => {
-          if (options.confirmMessage && !window.confirm(options.confirmMessage)) return;
+      button.addEventListener("click", async () => {
+        const previous = button.textContent;
+        const message = document.querySelector("[data-subscription-message]");
+        button.disabled = true;
+        button.textContent = workingText;
+        if (message) message.textContent = workingText;
 
-          const previous = button.textContent;
-          const messages = [
-            document.querySelector("[data-subscription-message]"),
-            document.querySelector("[data-tier-settings-message]"),
-          ].filter(Boolean);
-          button.disabled = true;
-          button.textContent = workingText;
-          messages.forEach((message) => { message.textContent = workingText; });
-
-          try {
-            const result = await api(endpoint, { method: "POST", body: "{}" });
-            messages.forEach((message) => { message.textContent = result.message || "Subscription updated."; });
-            const nextAccount = await api("/api/me");
-            currentAccountCache = nextAccount;
-            renderAccount(nextAccount);
-          } catch (error) {
-            button.disabled = false;
-            button.textContent = previous;
-            messages.forEach((message) => { message.textContent = error.message || "Could not update tier."; });
-          }
-        });
+        try {
+          const result = await api(endpoint, { method: "POST", body: "{}" });
+          if (message) message.textContent = result.message || "Subscription updated.";
+          renderAccount(await api("/api/me"));
+        } catch (error) {
+          button.disabled = false;
+          button.textContent = previous;
+          if (message) message.textContent = error.message || "Could not update renewal.";
+        }
       });
     };
 
-    bindRenewalButton("[data-cancel-renewal-button], [data-cancel-tier-button]", "/api/subscription/cancel-tier", "Cancelling tier...", {
-      confirmMessage: "Cancel this tier? Paid access stays active until the current period ends.",
-    });
-    bindRenewalButton("[data-resume-renewal-button], [data-resume-tier-button]", "/api/subscription/resume-tier", "Resuming tier...");
-  };
-
-
-
-  const accountCheckoutMessage = (session, account, tier) => {
-    const activeTier = Number(account.subscription?.tier || 0);
-    const scheduled = account.subscription?.scheduledDowngrade || null;
-    const scheduledTier = Number(scheduled?.tier || 0);
-    const isReturnToCurrentTier = session.accessMode === "return_to_current_tier";
-    const isDowngrade = session.accessMode === "downgrade_after_current_period" || (!isReturnToCurrentTier && activeTier > tier);
-    const isUpgrade = session.accessMode === "upgrade_immediate" || (activeTier > 0 && tier > activeTier);
-    const scheduledStartsAt = session.scheduledStartsAt || account.subscription?.expiresAt || null;
-
-    if (isReturnToCurrentTier) {
-      return `Keep Tier ${tier}. MoonPay confirmation will replace the scheduled Tier ${Number(session.replacesTier || scheduledTier || 0)} change after ${formatDate(scheduledStartsAt)}.`;
-    }
-    if (isDowngrade) {
-      return `Switch to Tier ${tier}. Current Tier ${activeTier} access remains active until ${formatDate(scheduledStartsAt)}; Tier ${tier} starts after that.`;
-    }
-    if (isUpgrade) {
-      return `Upgrade to Tier ${tier}. Higher access activates after MoonPay confirms payment; lower tier access is replaced in Ravene Hub.`;
-    }
-    return `Start Tier ${tier}. Access activates after MoonPay confirms payment.`;
-  };
-
-  const pollAccountMoonPayAccess = async (tier, session, showMessage) => {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, attempt ? 2200 : 900));
-      try {
-        const account = await api("/api/me");
-        const activeTier = Number(account.subscription?.tier || 0);
-        const source = account.subscription?.paymentSource || account.subscription?.source;
-        const moonpayTier = Number(account.subscription?.moonpayTier || 0);
-        const moonpayStatus = account.subscription?.renewalStatus || account.subscription?.status || "none";
-        const scheduled = account.subscription?.scheduledDowngrade || null;
-        const scheduledTier = Number(scheduled?.tier || 0);
-        const confirmedMoonPayTier = moonpayTier === Number(tier) && ["active", "renewed"].includes(moonpayStatus);
-        const upgradedAccess = source === "moonpay" && activeTier >= Number(tier || 0);
-        const mode = session.accessMode || "new";
-        const confirmed = mode === "downgrade_after_current_period"
-          ? confirmedMoonPayTier || scheduledTier === Number(tier)
-          : mode === "return_to_current_tier"
-            ? activeTier >= Number(tier) && !scheduledTier
-            : confirmedMoonPayTier || upgradedAccess;
-
-        if (account.authenticated && confirmed) {
-          currentAccountCache = account;
-          renderAccount(account);
-          const checkout = document.querySelector("[data-account-tier-checkout]");
-          if (checkout) {
-            checkout.hidden = true;
-            checkout.innerHTML = "";
-          }
-          showMessage(mode === "downgrade_after_current_period"
-            ? `MoonPay confirmed the payment. Tier ${tier} is scheduled after the current period.`
-            : "MoonPay confirmed the payment. Account status updated.");
-          return true;
-        }
-      } catch {
-        // Webhook confirmation can arrive after the checkout widget closes.
-      }
-    }
-    showMessage("Payment submitted. Access will update after the MoonPay webhook is confirmed.");
-    return false;
-  };
-
-  const initAccountTierSettings = () => {
-    const buttons = document.querySelectorAll("[data-account-tier-action]");
-    if (!buttons.length) return;
-
-    buttons.forEach((button) => {
-      button.addEventListener("click", async () => {
-        const tier = Number(button.dataset.accountTierAction || 0);
-        const message = document.querySelector("[data-tier-settings-message]");
-        const checkout = document.querySelector("[data-account-tier-checkout]");
-        if (!tier || !checkout) return;
-
-        const setMessage = (text) => {
-          if (message) message.textContent = text;
-        };
-
-        const previousDisabled = button.disabled;
-        button.disabled = true;
-        setMessage("Preparing MoonPay checkout...");
-        checkout.hidden = true;
-        checkout.innerHTML = "";
-
-        try {
-          const account = currentAccountCache?.authenticated ? currentAccountCache : await refreshAccount({ render: false });
-          if (!account?.authenticated) {
-            setMessage("Log in or register before changing a tier.");
-            return;
-          }
-
-          const config = await api("/api/moonpay/config");
-          const plan = config.plans?.[tier];
-          if (!config.configured || !plan?.paylinkId) {
-            setMessage("This tier is not connected to MoonPay Commerce yet.");
-            return;
-          }
-
-          await loadScriptOnce(
-            config.widgetScriptUrl || "https://embed.hel.io/assets/index-v1.js",
-            "moonpay-commerce-checkout",
-            () => Boolean(window.helioCheckout),
-          );
-
-          const session = await api("/api/moonpay/checkout/session", {
-            method: "POST",
-            body: JSON.stringify({ tier }),
-          });
-
-          checkout.hidden = false;
-          checkout.innerHTML = "";
-          setMessage(accountCheckoutMessage(session, account, tier));
-
-          const activeTier = Number(account.subscription?.tier || 0);
-          const isReturnToCurrentTier = session.accessMode === "return_to_current_tier";
-          const isDowngrade = session.accessMode === "downgrade_after_current_period" || (!isReturnToCurrentTier && activeTier > tier);
-          const isUpgrade = session.accessMode === "upgrade_immediate" || (activeTier > 0 && tier > activeTier);
-
-          window.helioCheckout(checkout, {
-            paylinkId: session.paylinkId || plan.paylinkId,
-            network: session.network || config.network || "main",
-            paymentType: "paylink",
-            primaryPaymentMethod: session.primaryPaymentMethod || config.primaryPaymentMethod || "crypto",
-            display: "button",
-            theme: { themeMode: "dark" },
-            customTexts: {
-              mainButtonTitle: isReturnToCurrentTier ? `Keep Tier ${tier}` : isDowngrade ? `Switch to Tier ${tier}` : isUpgrade ? `Upgrade to Tier ${tier}` : `Start Tier ${tier}`,
-              payButtonTitle: isReturnToCurrentTier ? `Keep Tier ${tier}` : isDowngrade ? "Confirm next membership" : isUpgrade ? `Pay Tier ${tier}` : "Start membership",
-            },
-            autofillConfig: {
-              email: account.user?.email || "",
-              fullName: account.user?.displayName || "",
-            },
-            additionalJSON: {
-              provider: "moonpay_commerce",
-              source: "ravene_hub_account_settings",
-              userId: account.user?.id || "",
-              tier,
-              accessMode: session.accessMode || "new",
-              scheduledStartsAt: session.scheduledStartsAt || "",
-              checkoutSessionId: session.sessionId || "",
-              checkoutToken: session.checkoutToken || "",
-              accountEmail: account.user?.email || "",
-            },
-            onStartPayment: () => setMessage("MoonPay checkout started. Confirm the payment in the widget."),
-            onPending: () => setMessage(isDowngrade ? "Payment is pending. Tier change will be scheduled after the current period once MoonPay confirms it." : "Payment is pending. Access updates after MoonPay confirms it."),
-            onSuccess: () => pollAccountMoonPayAccess(tier, session, setMessage),
-            onCancel: () => setMessage("Checkout was closed before confirmation."),
-            onError: (error) => {
-              console.error(error);
-              setMessage("MoonPay Commerce could not start the membership checkout.");
-            },
-          });
-        } catch (error) {
-          setMessage(error.message || "Could not prepare tier change.");
-          checkout.hidden = true;
-          checkout.innerHTML = "";
-        } finally {
-          button.disabled = previousDisabled;
-        }
-      });
-    });
+    bindRenewalButton("[data-cancel-renewal-button]", "/api/subscription/cancel-renewal", "Cancelling renewal...");
+    bindRenewalButton("[data-resume-renewal-button]", "/api/subscription/resume-renewal", "Resuming renewal...");
   };
 
   const initBuildLaunch = () => {
@@ -1045,21 +740,13 @@
           const source = account.subscription?.paymentSource || account.subscription?.source;
           const moonpayTier = Number(account.subscription?.moonpayTier || 0);
           const moonpayStatus = account.subscription?.renewalStatus || account.subscription?.status || "none";
-          const scheduled = account.subscription?.scheduledDowngrade || null;
-          const scheduledTier = Number(scheduled?.tier || 0);
           const confirmedMoonPayTier = moonpayTier === Number(tier) && ["active", "renewed"].includes(moonpayStatus);
           const upgradedAccess = source === "moonpay" && activeTier >= Number(tier || 0);
-          const mode = session.accessMode || "new";
-          const confirmed = mode === "downgrade_after_current_period"
-            ? confirmedMoonPayTier || scheduledTier === Number(tier)
-            : mode === "return_to_current_tier"
-              ? activeTier >= Number(tier) && !scheduledTier
-              : confirmedMoonPayTier || upgradedAccess;
 
-          if (account.authenticated && confirmed) {
+          if (account.authenticated && (confirmedMoonPayTier || upgradedAccess)) {
             const scheduledStartsAt = session.scheduledStartsAt || null;
-            const message = mode === "downgrade_after_current_period"
-              ? `MoonPay confirmed the membership. Tier ${tier} will take over after ${formatDate(scheduledStartsAt || scheduled?.startsAt)}.`
+            const message = scheduledStartsAt
+              ? `MoonPay confirmed the membership. Tier ${tier} will take over after ${formatDate(scheduledStartsAt)}.`
               : "MoonPay confirmed the membership. Redirecting to account...";
             showMessage(message);
             window.setTimeout(() => window.location.href = "account.html#connect-account", 900);
@@ -1153,25 +840,11 @@
         if (activeTier === tier && !hasScheduledDowngrade) {
           if (fallback) {
             fallback.hidden = false;
-            fallback.disabled = false;
-            fallback.textContent = "Cancel tier";
-            fallback.onclick = async () => {
-              if (!window.confirm("Cancel this tier? Paid access stays active until the current period ends.")) return;
-              fallback.disabled = true;
-              fallback.textContent = "Cancelling...";
-              setTierMessage(tier, "Cancelling tier renewal in Ravene Hub...");
-              try {
-                await api("/api/subscription/cancel-tier", { method: "POST", body: "{}" });
-                window.location.reload();
-              } catch (error) {
-                fallback.disabled = false;
-                fallback.textContent = "Cancel tier";
-                setTierMessage(tier, error.message || "Could not cancel tier.");
-              }
-            };
+            fallback.disabled = true;
+            fallback.textContent = "Current membership";
           }
           container.hidden = true;
-          setTierMessage(tier, "This tier is active. Use the other tier card to switch, or cancel renewal here.");
+          setTierMessage(tier, "This membership tier is already active.");
           return;
         }
 
@@ -1185,7 +858,7 @@
           if (fallback) {
             fallback.hidden = false;
             fallback.disabled = true;
-            fallback.textContent = error.code === "tier_already_active" ? "Current tier" : "Unavailable";
+            fallback.textContent = error.code === "tier_already_active" ? "Current membership" : "Unavailable";
           }
           container.hidden = true;
           setTierMessage(tier, "Membership checkout is temporarily unavailable. Please try again after the site update is fully deployed.");
@@ -2226,7 +1899,6 @@
   initPasswordAuth();
   initLogout();
   initRenewalControls();
-  initAccountTierSettings();
   initBuildLaunch();
   initMoonPaySubscriptions();
   initProfileToggle();
