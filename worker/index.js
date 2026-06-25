@@ -84,7 +84,11 @@ async function serveShareablePostPage(request, env, url) {
 
   const requestedSlug = postSlugFromPageURL(url);
   const shellUrl = new URL("/post-alternative-system.html", url.origin);
-  const shellResponse = await env.ASSETS.fetch(new Request(shellUrl.toString(), request));
+  const shellAssetRequest = new Request(shellUrl.toString(), {
+    method: "GET",
+    headers: request.headers,
+  });
+  const shellResponse = await env.ASSETS.fetch(shellAssetRequest);
   if (shellResponse.status === 404) return null;
 
   const preview = await loadSharePostPreview(env, requestedSlug, url.origin);
