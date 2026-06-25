@@ -1,0 +1,3 @@
+/post/alternative-system-for-early-access-verification /post/alternative-system-for-early-access-verification/index.html 200
+/post/alternative-system /post/alternative-system/index.html 200
+/post/* /post-alternative-system.html?post=:splat 200

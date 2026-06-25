@@ -963,12 +963,12 @@
   };
 
   const postPermalink = (slug) => {
-    const cleanSlug = encodeURIComponent(slug || "alternative-system");
+    const cleanSlug = encodeURIComponent(slug || "alternative-system-for-early-access-verification");
     if (window.location.protocol === "file:") return `post-alternative-system.html?post=${cleanSlug}`;
     return `/post/${cleanSlug}`;
   };
 
-  const postHref = (post) => post.staticHref || postPermalink(post.slug || "alternative-system");
+  const postHref = (post) => post.staticHref || postPermalink(post.slug || "alternative-system-for-early-access-verification");
 
   const mediaMarkup = (media = []) => media.map((item) => {
     const url = escapeHTML(item.url || "");
@@ -1031,7 +1031,7 @@
     const loginLink = document.querySelector("[data-comment-login]");
     if (!page || !form) return;
 
-    const postSlug = postSlugFromLocation() || page.dataset.postSlug || "alternative-system";
+    const postSlug = postSlugFromLocation() || page.dataset.postSlug || "alternative-system-for-early-access-verification";
     page.dataset.postSlug = postSlug;
 
     const loadComments = async () => {
@@ -1210,7 +1210,7 @@
   const initPostDetail = async () => {
     const page = document.querySelector("[data-post-page]");
     if (!page) return;
-    const postSlug = postSlugFromLocation() || page.dataset.postSlug || "alternative-system";
+    const postSlug = postSlugFromLocation() || page.dataset.postSlug || "alternative-system-for-early-access-verification";
     page.dataset.postSlug = postSlug;
 
     try {
@@ -1881,7 +1881,7 @@
       return url.toString();
     }
 
-    const slug = page.dataset.postSlug || postSlugFromLocation() || "alternative-system";
+    const slug = page.dataset.postSlug || postSlugFromLocation() || "alternative-system-for-early-access-verification";
     if (window.location.protocol === "file:") {
       const url = new URL("post-alternative-system.html", window.location.href);
       url.search = `?post=${encodeURIComponent(slug)}`;

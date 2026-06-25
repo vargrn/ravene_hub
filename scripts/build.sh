@@ -14,6 +14,18 @@ cp "$project_root"/*.html "$dist_root/client/"
 cp "$project_root/favicon.ico" "$dist_root/client/favicon.ico"
 cp -R "$project_root/assets" "$dist_root/client/assets"
 
+if [ -f "$project_root/_redirects" ]; then
+  cp "$project_root/_redirects" "$dist_root/client/_redirects"
+fi
+
+if [ -f "$project_root/_routes.json" ]; then
+  cp "$project_root/_routes.json" "$dist_root/client/_routes.json"
+fi
+
+if [ -d "$project_root/post" ]; then
+  cp -R "$project_root/post" "$dist_root/client/post"
+fi
+
 if [ -d "$project_root/builds" ]; then
   cp -R "$project_root/builds" "$dist_root/client/builds"
 fi
