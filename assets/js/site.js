@@ -382,7 +382,7 @@
     const card = document.querySelector("[data-account-link-message]")?.closest(".connected-accounts-card");
     if (!card || !account?.authenticated) return;
 
-    ["google", "x", "telegram"].forEach((provider) => {
+    ["google", "telegram"].forEach((provider) => {
       const identity = identityForProvider(account, provider);
       const status = document.querySelector(`[data-link-provider-status="${provider}"]`);
       const row = document.querySelector(`[data-link-provider-row="${provider}"]`);
@@ -404,7 +404,7 @@
 
     try {
       const config = await api("/api/account/links/config");
-      ["google", "x"].forEach((provider) => {
+      ["google"].forEach((provider) => {
         const button = document.querySelector(`[data-link-provider-button="${provider}"]`);
         const status = document.querySelector(`[data-link-provider-status="${provider}"]`);
         const linked = Boolean(identityForProvider(account, provider));
