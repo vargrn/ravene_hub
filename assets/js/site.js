@@ -1131,7 +1131,7 @@
         ${postMetaMarkup(post)}
         <h3>${escapeHTML(post.title)}</h3>
         <p class="text">${escapeHTML(post.excerpt || "")}</p>
-        <div class="reaction-line"><span>Likes ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
+        <div class="reaction-line"><span>Likes ${post.likeCount || 0}</span><span>Comments ${post.commentCount || 0}</span></div>
       </div>
     </a>
   `;
@@ -1145,7 +1145,7 @@
         ${postMetaMarkup(post)}
         <h3>${escapeHTML(post.title)}</h3>
         <p class="text">${escapeHTML(post.excerpt || "")}</p>
-        <div class="reaction-line"><span>Likes ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
+        <div class="reaction-line"><span>Likes ${post.likeCount || 0}</span><span>Comments ${post.commentCount || 0}</span></div>
       </div>
     </a>
   `;
