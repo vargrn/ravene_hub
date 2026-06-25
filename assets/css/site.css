@@ -2234,83 +2234,6 @@ background-size: cover;
   width: 100%;
 }
 
-
-/* 2026-06-25: membership management inside Account settings. */
-.tier-settings-panel {
-  display: grid;
-  gap: 12px;
-  margin-top: 14px;
-  padding: 14px;
-  border: 1px solid rgba(232, 238, 248, 0.12);
-  background:
-    linear-gradient(135deg, rgba(184, 212, 255, 0.045), transparent 38%),
-    rgba(5, 8, 14, 0.46);
-}
-
-.tier-settings-panel[hidden] {
-  display: none !important;
-}
-
-.tier-settings-panel h3 {
-  margin: 0;
-  color: var(--text);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-
-.tier-settings-status {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.tier-settings-status div {
-  min-width: 0;
-  padding: 11px 12px;
-  border: 1px solid rgba(232, 238, 248, 0.10);
-  background: rgba(255, 255, 255, 0.024);
-}
-
-.tier-settings-status span,
-.tier-settings-status strong {
-  display: block;
-}
-
-.tier-settings-status span {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.tier-settings-status strong {
-  margin-top: 4px;
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 400;
-  overflow-wrap: anywhere;
-}
-
-.tier-settings-actions {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.tier-settings-actions .btn {
-  text-align: center;
-  text-decoration: none;
-}
-
-.tier-settings-actions .btn[hidden] {
-  display: none !important;
-}
-
-@media (max-width: 760px) {
-  .tier-settings-status,
-  .tier-settings-actions {
-    grid-template-columns: 1fr;
-  }
-}
-
 /* Chat panel: single-column heading, shared copy, and custom visual background. */
 .community-chat {
   background:
@@ -4644,4 +4567,155 @@ background-size: cover;
 .admin-workspace-card .meta,
 .account-layout .glass.card[data-admin-only] > .meta {
   display: none !important;
+}
+
+/* Account settings: real membership tier management. */
+.tier-settings-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgba(232, 238, 248, 0.12);
+  background:
+    linear-gradient(135deg, rgba(184, 212, 255, 0.05), transparent 38%),
+    rgba(5, 8, 14, 0.48);
+}
+
+.tier-settings-panel[hidden] {
+  display: none !important;
+}
+
+.tier-settings-panel .compact-line {
+  align-items: flex-start;
+  margin-bottom: 0;
+}
+
+.tier-settings-panel h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.tier-settings-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tier-settings-status div {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(232, 238, 248, 0.10);
+  background: rgba(255, 255, 255, 0.024);
+}
+
+.tier-settings-status div[hidden] {
+  display: none !important;
+}
+
+.tier-settings-status span,
+.tier-settings-status strong {
+  display: block;
+}
+
+.tier-settings-status span {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.tier-settings-status strong {
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.tier-switch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tier-switch-button {
+  display: grid;
+  gap: 5px;
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid rgba(232, 238, 248, 0.16);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tier-switch-button span {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.tier-switch-button small {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.tier-switch-button:not(:disabled):hover {
+  border-color: rgba(232, 238, 248, 0.38);
+  background: rgba(255, 255, 255, 0.065);
+}
+
+.tier-switch-button.is-current {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.tier-switch-button:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.account-tier-checkout {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.account-tier-checkout[hidden] {
+  display: none !important;
+}
+
+.tier-settings-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tier-settings-actions .btn[hidden] {
+  display: none !important;
+}
+
+.tier-settings-panel .moonpay-widget button,
+.tier-settings-panel .moonpay-widget [role="button"],
+.tier-settings-panel .moonpay-widget a,
+.tier-settings-panel .moonpay-widget div[role="button"] {
+  border-radius: 0 !important;
+  border-color: rgba(255, 255, 255, 0.55) !important;
+  background: linear-gradient(180deg, #f4f6f8, #cbd1d9) !important;
+  color: #07090d !important;
+}
+
+@media (max-width: 760px) {
+  .tier-settings-panel .compact-line,
+  .tier-settings-status,
+  .tier-switch-grid,
+  .tier-settings-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .tier-settings-panel .compact-line {
+    display: grid;
+    gap: 5px;
+  }
 }

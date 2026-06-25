@@ -131,11 +131,11 @@ async function handleApi(request, env, url) {
       return cancelScheduledMoonPayDowngrade(request, env);
     }
 
-    if (url.pathname === "/api/subscription/cancel-renewal" && request.method === "POST") {
+    if ((url.pathname === "/api/subscription/cancel-renewal" || url.pathname === "/api/subscription/cancel-tier") && request.method === "POST") {
       return cancelSubscriptionRenewal(request, env);
     }
 
-    if (url.pathname === "/api/subscription/resume-renewal" && request.method === "POST") {
+    if ((url.pathname === "/api/subscription/resume-renewal" || url.pathname === "/api/subscription/resume-tier") && request.method === "POST") {
       return resumeSubscriptionRenewal(request, env);
     }
 
@@ -2430,8 +2430,8 @@ async function cancelSubscriptionRenewal(request, env) {
     expiresAt: access.expires_at,
     revokedFutureAccess,
     message: revokedFutureAccess > 0
-      ? `Renewal cancelled and ${revokedFutureAccess} scheduled tier change removed. Paid access remains active until ${formatApiDate(access.expires_at)}.`
-      : `Renewal cancelled. Paid access remains active until ${formatApiDate(access.expires_at)}.`,
+      ? `Tier renewal cancelled and ${revokedFutureAccess} scheduled tier change removed. Paid access remains active until ${formatApiDate(access.expires_at)}.`
+      : `Tier renewal cancelled. Paid access remains active until ${formatApiDate(access.expires_at)}.`,
   });
 }
 
@@ -3301,6 +3301,8 @@ async function revokeScheduledLowerTierAccess(env, userId, keepTier, now = new D
 
   return Number(result?.meta?.changes || result?.changes || 0);
 }
+
+
 
 async function revokeFutureScheduledMoonPayAccess(env, userId, now = new Date().toISOString()) {
   if (!env.DB) return 0;

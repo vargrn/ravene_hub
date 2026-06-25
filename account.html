@@ -31,8 +31,8 @@
             <div class="subscription-actions" data-renewal-note hidden>
               <p class="form-note" data-subscription-message>MoonPay Commerce controls renewals. Access updates after confirmed webhook events.</p>
               <div class="account-actions renewal-actions">
-                <button class="btn btn-secondary" type="button" data-cancel-renewal-button hidden>Cancel renewal</button>
-                <button class="btn" type="button" data-resume-renewal-button hidden>Resume renewal</button>
+                <button class="btn btn-secondary" type="button" data-cancel-renewal-button hidden>Cancel tier</button>
+                <button class="btn" type="button" data-resume-renewal-button hidden>Resume tier</button>
               </div>
             </div>
             <div class="auth-gate" data-auth-gate>
@@ -77,17 +77,32 @@
               <button class="btn" type="submit">Save profile</button>
               <p class="form-note" data-profile-message>Profile data is attached to the Ravene Hub account.</p>
               <section class="tier-settings-panel" data-tier-settings hidden>
-                <h3>Membership settings</h3>
+                <div class="section-line compact-line">
+                  <h3>Membership settings</h3>
+                  <span class="form-note">Manage your paid tier without leaving account settings.</span>
+                </div>
                 <div class="tier-settings-status">
                   <div><span>Current tier</span><strong data-settings-tier>No active tier</strong></div>
                   <div><span>Paid access until</span><strong data-settings-expires>-</strong></div>
+                  <div><span>Renewal</span><strong data-settings-renewal>-</strong></div>
+                  <div data-settings-scheduled-wrap hidden><span>Scheduled change</span><strong data-settings-scheduled>-</strong></div>
                 </div>
+                <div class="tier-switch-grid" data-account-tier-switch>
+                  <button class="tier-switch-button" type="button" data-account-tier-action="1">
+                    <span data-tier-action-title>Tier 1</span>
+                    <small data-tier-action-detail>Early access posts and extra materials.</small>
+                  </button>
+                  <button class="tier-switch-button" type="button" data-account-tier-action="2">
+                    <span data-tier-action-title>Tier 2</span>
+                    <small data-tier-action-detail>Playable builds plus Tier 1 benefits.</small>
+                  </button>
+                </div>
+                <div class="moonpay-widget account-tier-checkout" data-account-tier-checkout hidden></div>
                 <div class="account-actions tier-settings-actions">
-                  <a class="btn btn-secondary" href="membership.html" data-change-tier-button>Change tier</a>
                   <button class="btn btn-secondary" type="button" data-cancel-tier-button hidden>Cancel tier</button>
                   <button class="btn" type="button" data-resume-tier-button hidden>Resume tier</button>
                 </div>
-                <p class="form-note" data-tier-settings-message>Change, cancel, or resume your membership tier here.</p>
+                <p class="form-note" data-tier-settings-message>Choose a tier above to start or switch your membership.</p>
               </section>
             </form>
           </article>
