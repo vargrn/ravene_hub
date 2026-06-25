@@ -672,14 +672,9 @@
 
     link.addEventListener("click", async (event) => {
       const fallbackUrl = link.getAttribute("href") || "https://biopunk-vn-hub-ea.pages.dev/";
-      const message = document.querySelector("[data-build-message]");
       event.preventDefault();
       link.classList.add("is-loading");
       link.setAttribute("aria-busy", "true");
-      if (message) {
-        message.hidden = false;
-        message.textContent = "Opening build...";
-      }
 
       try {
         const launch = await api("/api/builds/current/launch", { method: "POST", body: "{}" });
