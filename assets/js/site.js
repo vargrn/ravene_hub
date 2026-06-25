@@ -264,14 +264,18 @@
     }
 
     const profileForm = document.querySelector("[data-profile-form]");
-    if (profileForm && !profileForm.dataset.loaded) {
-      profileForm.dataset.loaded = "1";
+    if (profileForm) {
       const fields = profileForm.elements;
-      if (fields.displayName) fields.displayName.value = account.user?.displayName || "";
-      if (fields.avatarUrl) fields.avatarUrl.value = account.user?.avatarUrl || "";
-      if (fields.bio) fields.bio.value = account.profile?.bio || "";
-      if (fields.websiteUrl) fields.websiteUrl.value = account.profile?.websiteUrl || "";
-      if (fields.publicNote) fields.publicNote.value = account.profile?.publicNote || "";
+      const formIsFocused = profileForm.contains(document.activeElement);
+      const shouldLoadProfile = !profileForm.dataset.loaded || !formIsFocused;
+      if (shouldLoadProfile) {
+        profileForm.dataset.loaded = "1";
+        if (fields.displayName) fields.displayName.value = account.user?.displayName || "";
+        if (fields.avatarUrl) fields.avatarUrl.value = account.user?.avatarUrl || "";
+        if (fields.bio) fields.bio.value = account.profile?.bio || "";
+        if (fields.websiteUrl) fields.websiteUrl.value = account.profile?.websiteUrl || "";
+        if (fields.publicNote) fields.publicNote.value = account.profile?.publicNote || "";
+      }
     }
 
     renderConnectedAccounts(account);
@@ -1597,14 +1601,20 @@
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (message) message.textContent = "Saving profile...";
+      const payload = Object.fromEntries(new FormData(form));
+      setFormBusy(form, true);
       try {
-        const payload = Object.fromEntries(new FormData(form));
         const data = await api("/api/account/profile", { method: "PUT", body: JSON.stringify(payload) });
         currentAccountCache = await api("/api/me");
+        delete form.dataset.loaded;
         renderAccount(currentAccountCache);
-        if (message) message.textContent = "Profile saved.";
+        if (communityChatLoader) await communityChatLoader();
+        if (adminPanelLoader && currentAccountCache?.permissions?.canManagePosts) await adminPanelLoader();
+        if (message) message.textContent = data.message || "Profile saved.";
       } catch (error) {
         if (message) message.textContent = error.message || "Could not save profile.";
+      } finally {
+        setFormBusy(form, false);
       }
     });
   };

@@ -1059,9 +1059,17 @@ async function updateAccountProfile(request, env) {
   const displayName = requestedDisplayName || account.user.displayName;
   const displayNameError = requestedDisplayName ? reservedDisplayNameReason(displayName) : "";
   if (displayNameError && !account.permissions?.canManageUsers) return json({ error: displayNameError }, { status: 400 });
-  const avatarUrl = cleanUrl(body.avatarUrl, 500) || null;
+  const rawAvatarUrl = String(body.avatarUrl || "").trim();
+  const avatarUrl = cleanUrl(rawAvatarUrl, 500) || null;
+  if (rawAvatarUrl && !avatarUrl) {
+    return json({ error: "Avatar URL must be HTTPS or an assets/... path." }, { status: 400 });
+  }
   const bio = cleanLongText(body.bio, 600);
-  const websiteUrl = cleanUrl(body.websiteUrl, 500) || null;
+  const rawWebsiteUrl = String(body.websiteUrl || "").trim();
+  const websiteUrl = cleanUrl(rawWebsiteUrl, 500) || null;
+  if (rawWebsiteUrl && !websiteUrl) {
+    return json({ error: "Website URL must be HTTPS." }, { status: 400 });
+  }
   const publicNote = cleanLongText(body.publicNote, 600);
   const now = new Date().toISOString();
 
@@ -3260,7 +3268,7 @@ function cleanUrl(value, maxLength = 500) {
       return "";
     }
   }
-  if (/^assets\//i.test(text) || /^builds\//i.test(text)) return text;
+  if (/^\/?assets\//i.test(text) || /^\/?builds\//i.test(text)) return text.replace(/^\/+/, "");
   return "";
 }
 
