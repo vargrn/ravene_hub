@@ -667,36 +667,28 @@
   };
 
   const initBuildLaunch = () => {
-    const button = document.querySelector("[data-build-launch]");
-    if (!button) return;
+    const link = document.querySelector("[data-build-launch]");
+    if (!link) return;
 
-    button.addEventListener("click", async () => {
+    link.addEventListener("click", async (event) => {
+      const fallbackUrl = link.getAttribute("href") || "https://biopunk-vn-hub-ea.pages.dev/";
       const message = document.querySelector("[data-build-message]");
-      button.disabled = true;
-      button.setAttribute("aria-busy", "true");
+      event.preventDefault();
+      link.classList.add("is-loading");
+      link.setAttribute("aria-busy", "true");
       if (message) {
         message.hidden = false;
-        message.textContent = "Checking access...";
+        message.textContent = "Opening build...";
       }
 
       try {
         const launch = await api("/api/builds/current/launch", { method: "POST", body: "{}" });
-        if (launch.launchUrl) {
-          window.location.href = launch.launchUrl;
-          return;
-        }
-        if (message) {
-          message.hidden = false;
-          message.textContent = "Access confirmed, but the game URL is not connected yet.";
-        }
-      } catch (error) {
-        if (message) {
-          message.hidden = false;
-          message.textContent = error.message || "Could not open build.";
-        }
+        window.location.href = launch.launchUrl || fallbackUrl;
+      } catch {
+        window.location.href = fallbackUrl;
       } finally {
-        button.disabled = false;
-        button.removeAttribute("aria-busy");
+        link.classList.remove("is-loading");
+        link.removeAttribute("aria-busy");
       }
     });
   };

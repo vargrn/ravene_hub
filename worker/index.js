@@ -349,30 +349,63 @@ async function registerWithPassword(request, env) {
       email_verified_at: null,
     };
 
-    await env.DB.batch([
-      env.DB.prepare(
-        "INSERT INTO users (id, email, display_name, avatar_url, created_at, updated_at, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ).bind(user.id, user.email, user.display_name, user.avatar_url, user.created_at, user.updated_at, user.email_verified_at),
-      env.DB.prepare(
-        "INSERT INTO user_identities (id, user_id, provider, provider_user_id, provider_username, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ).bind(randomId(), user.id, "email", email, email, nowIso, nowIso),
-      env.DB.prepare(
-        `INSERT INTO user_credentials
-          (id, user_id, email, email_normalized, password_hash, password_salt, password_iterations, password_algorithm, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(
-        randomId(),
-        user.id,
-        email,
-        email,
-        passwordRecord.hash,
-        passwordRecord.salt,
-        passwordRecord.iterations,
-        passwordRecord.algorithm,
-        nowIso,
-        nowIso,
-      ),
-    ]);
+    const identityId = randomId();
+    const credentialId = randomId();
+    const insertIdentity = env.DB.prepare(
+      "INSERT INTO user_identities (id, user_id, provider, provider_user_id, provider_username, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).bind(identityId, user.id, "email", email, email, nowIso, nowIso);
+    const insertCredential = env.DB.prepare(
+      `INSERT INTO user_credentials
+        (id, user_id, email, email_normalized, password_hash, password_salt, password_iterations, password_algorithm, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      credentialId,
+      user.id,
+      email,
+      email,
+      passwordRecord.hash,
+      passwordRecord.salt,
+      passwordRecord.iterations,
+      passwordRecord.algorithm,
+      nowIso,
+      nowIso,
+    );
+
+    try {
+      await env.DB.batch([
+        env.DB.prepare(
+          "INSERT INTO users (id, email, display_name, avatar_url, created_at, updated_at, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ).bind(user.id, user.email, user.display_name, user.avatar_url, user.created_at, user.updated_at, user.email_verified_at),
+        insertIdentity,
+        insertCredential,
+      ]);
+    } catch (error) {
+      if (!isMissingSchemaError(error, ["users"])) throw error;
+      await env.DB.batch([
+        env.DB.prepare(
+          "INSERT INTO users (id, email, display_name, avatar_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        ).bind(user.id, user.email, user.display_name, user.avatar_url, user.created_at, user.updated_at),
+        env.DB.prepare(
+          "INSERT INTO user_identities (id, user_id, provider, provider_user_id, provider_username, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ).bind(identityId, user.id, "email", email, email, nowIso, nowIso),
+        env.DB.prepare(
+          `INSERT INTO user_credentials
+            (id, user_id, email, email_normalized, password_hash, password_salt, password_iterations, password_algorithm, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).bind(
+          credentialId,
+          user.id,
+          email,
+          email,
+          passwordRecord.hash,
+          passwordRecord.salt,
+          passwordRecord.iterations,
+          passwordRecord.algorithm,
+          nowIso,
+          nowIso,
+        ),
+      ]);
+    }
 
     return createSessionResponse(request, env, user);
   }
@@ -557,14 +590,16 @@ async function createDevSession(request, env) {
 }
 
 async function createBuildLaunch(request, env) {
-  if (!env.DB) return json({ error: "Database is not configured yet" }, { status: 503 });
+  const baseUrl = cleanExternalUrl(env.EA_HUB_GAME_URL || env.CURRENT_BUILD_URL || "");
+  if (!baseUrl) return json({ error: "EA game URL is not connected yet" }, { status: 503 });
+
+  if (!env.DB) {
+    return json({ buildKey: "current-ea", launchUrl: baseUrl, fallback: true });
+  }
 
   const account = await currentAccount(request, env);
-  if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
-
-  const access = await gameAccessForUser(env, account.user.id);
-  if (!access.active) {
-    return json({ error: "Tier 2 access is required" }, { status: 403 });
+  if (!account.authenticated) {
+    return json({ buildKey: "current-ea", launchUrl: baseUrl, fallback: true, reason: "not_authenticated" });
   }
 
   const buildKey = cleanGameBuildKey("current-ea");
@@ -572,29 +607,35 @@ async function createBuildLaunch(request, env) {
   const tokenHash = await sha256(token);
   const now = new Date();
   const expiresAt = addMinutes(now, BUILD_SESSION_MINUTES).toISOString();
+  let access = emptySubscription();
 
-  await env.DB.prepare(
-    `INSERT INTO game_sessions
-      (id, user_id, build_key, token_hash, source, tier_at_issue, access_expires_at, created_at, expires_at, consumed_at, last_checked_at, revoked_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
-  ).bind(
-    randomId(),
-    account.user.id,
-    buildKey,
-    tokenHash,
-    access.source || "hub",
-    Number(access.tier || 0),
-    access.expiresAt || null,
-    now.toISOString(),
-    expiresAt,
-  ).run();
+  try {
+    access = await gameAccessForUser(env, account.user.id);
+    await env.DB.prepare(
+      `INSERT INTO game_sessions
+        (id, user_id, build_key, token_hash, source, tier_at_issue, access_expires_at, created_at, expires_at, consumed_at, last_checked_at, revoked_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
+    ).bind(
+      randomId(),
+      account.user.id,
+      buildKey,
+      tokenHash,
+      access.source || "hub",
+      Number(access.tier || 0),
+      access.expiresAt || null,
+      now.toISOString(),
+      expiresAt,
+    ).run();
+  } catch (error) {
+    console.error("Could not create game session", error);
+    return json({ buildKey, launchUrl: baseUrl, fallback: true, reason: "session_create_failed" });
+  }
 
-  const baseUrl = cleanExternalUrl(env.EA_HUB_GAME_URL || env.CURRENT_BUILD_URL || "");
   return json({
     buildKey,
     hubSession: token,
     expiresAt,
-    launchUrl: baseUrl ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}hub_session=${encodeURIComponent(token)}` : null,
+    launchUrl: `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}hub_session=${encodeURIComponent(token)}`,
   });
 }
 
