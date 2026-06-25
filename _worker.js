@@ -1059,11 +1059,13 @@ async function updateAccountProfile(request, env) {
   const displayName = requestedDisplayName || account.user.displayName;
   const displayNameError = requestedDisplayName ? reservedDisplayNameReason(displayName) : "";
   if (displayNameError && !account.permissions?.canManageUsers) return json({ error: displayNameError }, { status: 400 });
+
   const rawAvatarUrl = String(body.avatarUrl || "").trim();
-  const avatarUrl = cleanUrl(rawAvatarUrl, 500) || null;
+  const avatarUrl = cleanUrl(rawAvatarUrl, 1000) || null;
   if (rawAvatarUrl && !avatarUrl) {
     return json({ error: "Avatar URL must be HTTPS or an assets/... path." }, { status: 400 });
   }
+
   const bio = cleanLongText(body.bio, 600);
   const rawWebsiteUrl = String(body.websiteUrl || "").trim();
   const websiteUrl = cleanUrl(rawWebsiteUrl, 500) || null;
@@ -1073,17 +1075,32 @@ async function updateAccountProfile(request, env) {
   const publicNote = cleanLongText(body.publicNote, 600);
   const now = new Date().toISOString();
 
-  await env.DB.batch([
-    env.DB.prepare("UPDATE users SET display_name = ?, avatar_url = ?, updated_at = ? WHERE id = ?")
-      .bind(displayName, avatarUrl, now, account.user.id),
-    env.DB.prepare(
+  // Avatar/display-name are core account fields. Do not let optional profile-table
+  // schema drift break them: save users first, then best-effort-save public profile fields.
+  await env.DB.prepare("UPDATE users SET display_name = ?, avatar_url = ?, updated_at = ? WHERE id = ?")
+    .bind(displayName, avatarUrl, now, account.user.id)
+    .run();
+
+  try {
+    await ensureUserProfileSchema(env);
+    await env.DB.prepare(
       `INSERT INTO user_profiles (user_id, bio, website_url, public_note, updated_at)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET bio = excluded.bio, website_url = excluded.website_url, public_note = excluded.public_note, updated_at = excluded.updated_at`,
-    ).bind(account.user.id, bio || null, websiteUrl, publicNote || null, now),
-  ]);
+    ).bind(account.user.id, bio || null, websiteUrl, publicNote || null, now).run();
+  } catch (error) {
+    if (!isMissingSchemaError(error, ["user_profiles"])) throw error;
+  }
 
-  return getAccountProfile(request, env);
+  const updated = await currentAccount(request, env);
+  return json({
+    message: "Profile saved.",
+    user: updated.user,
+    profile: updated.profile,
+    stats: updated.stats,
+    role: updated.role,
+    permissions: updated.permissions,
+  });
 }
 
 async function accountLinksConfig(request, env) {
@@ -3756,6 +3773,33 @@ function envAdminEmails(env) {
 function isEnvAdminEmail(env, email) {
   const normalized = normalizeEmail(email);
   return Boolean(normalized && envAdminEmails(env).includes(normalized));
+}
+
+async function ensureUserProfileSchema(env) {
+  if (!env.DB) return;
+
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    bio TEXT,
+    website_url TEXT,
+    public_note TEXT,
+    updated_at TEXT NOT NULL
+  )`).run();
+
+  const columns = await tableColumns(env, "user_profiles");
+  if (!columns.has("bio")) {
+    await env.DB.prepare("ALTER TABLE user_profiles ADD COLUMN bio TEXT").run();
+  }
+  if (!columns.has("website_url")) {
+    await env.DB.prepare("ALTER TABLE user_profiles ADD COLUMN website_url TEXT").run();
+  }
+  if (!columns.has("public_note")) {
+    await env.DB.prepare("ALTER TABLE user_profiles ADD COLUMN public_note TEXT").run();
+  }
+  if (!columns.has("updated_at")) {
+    await env.DB.prepare("ALTER TABLE user_profiles ADD COLUMN updated_at TEXT").run();
+    await env.DB.prepare("UPDATE user_profiles SET updated_at = COALESCE(updated_at, ?)").bind(new Date().toISOString()).run();
+  }
 }
 
 async function accountProfile(env, userId) {
