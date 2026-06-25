@@ -4418,3 +4418,24 @@ background-size: cover;
     width: 100%;
   }
 }
+
+
+/* FINAL 2026-06-25: Security card cleanup. */
+.connected-accounts-card .meta,
+.connected-accounts-intro,
+.account-link-message[hidden],
+.linked-account-action[hidden] {
+  display: none !important;
+}
+
+.connected-accounts-card {
+  padding-top: 24px !important;
+}
+
+.connected-accounts-card h2 {
+  margin-bottom: 18px !important;
+}
+
+.account-link-message:not([hidden]) {
+  margin-top: 12px;
+}

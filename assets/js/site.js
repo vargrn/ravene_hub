@@ -372,14 +372,18 @@
     const message = document.querySelector("[data-account-link-message]");
     if (!message) return;
     const params = new URLSearchParams(window.location.search);
-    const linked = params.get("linked");
     const error = params.get("link_error");
-    if (linked) message.textContent = `${providerLabels[linked] || linked} account linked.`;
-    if (error) message.textContent = error;
+    if (error) {
+      message.hidden = false;
+      message.textContent = error;
+    } else {
+      message.hidden = true;
+      message.textContent = "";
+    }
   };
 
   const renderConnectedAccounts = async (account) => {
-    const card = document.querySelector("[data-account-link-message]")?.closest(".connected-accounts-card");
+    const card = document.querySelector(".connected-accounts-card");
     if (!card || !account?.authenticated) return;
 
     ["google", "telegram"].forEach((provider) => {
@@ -390,7 +394,8 @@
       if (status) status.textContent = providerStateText(identity);
       if (row) row.classList.toggle("is-linked", Boolean(identity));
       if (button) {
-        button.textContent = identity ? "Linked" : `Link ${providerLabels[provider] || provider}`;
+        button.hidden = Boolean(identity);
+        button.textContent = `Link ${providerLabels[provider] || provider}`;
         button.classList.toggle("is-disabled", Boolean(identity));
         button.setAttribute("aria-disabled", identity ? "true" : "false");
         button.addEventListener("click", (event) => {
@@ -419,7 +424,10 @@
       renderTelegramLinkWidget(config, account);
     } catch (error) {
       const message = document.querySelector("[data-account-link-message]");
-      if (message) message.textContent = error.message || "Could not load account link settings.";
+      if (message) {
+        message.hidden = false;
+        message.textContent = error.message || "Could not load account link settings.";
+      }
     }
 
     setAccountLinkMessageFromUrl();
@@ -464,11 +472,17 @@
       if (message) message.textContent = "Linking Telegram...";
       try {
         const data = await api("/api/account/link/telegram-code", { method: "POST", body: JSON.stringify({ code }) });
-        if (message) message.textContent = data.message || "Telegram account linked.";
+        if (message) {
+          message.hidden = false;
+          message.textContent = data.message || "Telegram account linked.";
+        }
         form.reset();
         await refreshAccount();
       } catch (error) {
-        if (message) message.textContent = error.message || "Could not link Telegram.";
+        if (message) {
+          message.hidden = false;
+          message.textContent = error.message || "Could not link Telegram.";
+        }
       } finally {
         setFormBusy(form, false);
       }
