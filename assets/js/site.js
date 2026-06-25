@@ -183,8 +183,12 @@
     const panel = document.querySelector("[data-account-panel]");
     const renewalNote = document.querySelector("[data-renewal-note]");
     const subscriptionMessage = document.querySelector("[data-subscription-message]");
+    const tierSettingsPanel = document.querySelector("[data-tier-settings]");
+    const tierSettingsMessage = document.querySelector("[data-tier-settings-message]");
     const cancelRenewalButton = document.querySelector("[data-cancel-renewal-button]");
     const resumeRenewalButton = document.querySelector("[data-resume-renewal-button]");
+    const cancelTierButton = document.querySelector("[data-cancel-tier-button]");
+    const resumeTierButton = document.querySelector("[data-resume-tier-button]");
     if (!panel) return;
     const accountStateHeading = document.querySelector("[data-account-state]");
 
@@ -198,8 +202,11 @@
       if (accountStateHeading) accountStateHeading.hidden = false;
       setText("[data-account-state]", "Setup required");
       if (renewalNote) renewalNote.hidden = true;
+      if (tierSettingsPanel) tierSettingsPanel.hidden = true;
       if (cancelRenewalButton) cancelRenewalButton.hidden = true;
       if (resumeRenewalButton) resumeRenewalButton.hidden = true;
+      if (cancelTierButton) cancelTierButton.hidden = true;
+      if (resumeTierButton) resumeTierButton.hidden = true;
       const profileForm = document.querySelector("[data-profile-form]");
       if (profileForm) profileForm.hidden = true;
       return;
@@ -218,8 +225,11 @@
       setText("[data-account-renewal-status]", "-");
       setText("[data-account-source]", "-");
       if (renewalNote) renewalNote.hidden = true;
+      if (tierSettingsPanel) tierSettingsPanel.hidden = true;
       if (cancelRenewalButton) cancelRenewalButton.hidden = true;
       if (resumeRenewalButton) resumeRenewalButton.hidden = true;
+      if (cancelTierButton) cancelTierButton.hidden = true;
+      if (resumeTierButton) resumeTierButton.hidden = true;
       const profileForm = document.querySelector("[data-profile-form]");
       if (profileForm) profileForm.hidden = true;
       document.querySelectorAll("[data-auth-gate], [data-auth-trigger]").forEach((item) => {
@@ -242,6 +252,8 @@
     setText("[data-account-access-status]", accountAccessLabel(account.subscription));
     setText("[data-account-renewal-status]", renewalStatusLabel(renewalStatus, tier));
     setText("[data-account-source]", paymentSourceLabel(paymentSource));
+    setText("[data-settings-tier]", tier > 0 ? `Tier ${tier}` : "No active tier");
+    setText("[data-settings-expires]", formatDate(account.subscription?.expiresAt));
     setText("[data-account-email]", account.user?.email || "-");
     setText("[data-account-role]", roleLabel(account.role));
     setText("[data-account-comments]", String(account.stats?.comments || 0));
@@ -287,6 +299,14 @@
             ? "Renewal is cancelled. Paid access remains until the expiry date."
             : "";
     }
+    if (tierSettingsPanel) tierSettingsPanel.hidden = false;
+    if (tierSettingsMessage) {
+      tierSettingsMessage.textContent = cancelAtPeriodEnd
+        ? `Renewal is cancelled. Paid access remains until ${formatDate(account.subscription?.expiresAt)}.`
+        : tier > 0
+          ? "Use Change tier to upgrade or downgrade. Cancel tier stops renewal after the paid period."
+          : "No active membership tier. Use Change tier to choose a membership.";
+    }
     if (cancelRenewalButton) {
       cancelRenewalButton.hidden = !account.subscription?.canCancelRenewal;
       cancelRenewalButton.disabled = false;
@@ -294,6 +314,14 @@
     if (resumeRenewalButton) {
       resumeRenewalButton.hidden = !account.subscription?.canResumeRenewal;
       resumeRenewalButton.disabled = false;
+    }
+    if (cancelTierButton) {
+      cancelTierButton.hidden = !account.subscription?.canCancelRenewal;
+      cancelTierButton.disabled = false;
+    }
+    if (resumeTierButton) {
+      resumeTierButton.hidden = !account.subscription?.canResumeRenewal;
+      resumeTierButton.disabled = false;
     }
 
     document.querySelectorAll("[data-tier-indicator]").forEach((item) => {
@@ -658,31 +686,42 @@
   };
 
   const initRenewalControls = () => {
-    const bindRenewalButton = (selector, endpoint, workingText) => {
-      const button = document.querySelector(selector);
-      if (!button) return;
+    const bindRenewalButton = (selector, endpoint, workingText, options = {}) => {
+      const buttons = document.querySelectorAll(selector);
+      if (!buttons.length) return;
 
-      button.addEventListener("click", async () => {
-        const previous = button.textContent;
-        const message = document.querySelector("[data-subscription-message]");
-        button.disabled = true;
-        button.textContent = workingText;
-        if (message) message.textContent = workingText;
+      buttons.forEach((button) => {
+        button.addEventListener("click", async () => {
+          if (options.confirmMessage && !window.confirm(options.confirmMessage)) return;
 
-        try {
-          const result = await api(endpoint, { method: "POST", body: "{}" });
-          if (message) message.textContent = result.message || "Subscription updated.";
-          renderAccount(await api("/api/me"));
-        } catch (error) {
-          button.disabled = false;
-          button.textContent = previous;
-          if (message) message.textContent = error.message || "Could not update renewal.";
-        }
+          const previous = button.textContent;
+          const messages = [
+            document.querySelector("[data-subscription-message]"),
+            document.querySelector("[data-tier-settings-message]"),
+          ].filter(Boolean);
+          button.disabled = true;
+          button.textContent = workingText;
+          messages.forEach((message) => { message.textContent = workingText; });
+
+          try {
+            const result = await api(endpoint, { method: "POST", body: "{}" });
+            messages.forEach((message) => { message.textContent = result.message || "Subscription updated."; });
+            const nextAccount = await api("/api/me");
+            currentAccountCache = nextAccount;
+            renderAccount(nextAccount);
+          } catch (error) {
+            button.disabled = false;
+            button.textContent = previous;
+            messages.forEach((message) => { message.textContent = error.message || "Could not update renewal."; });
+          }
+        });
       });
     };
 
-    bindRenewalButton("[data-cancel-renewal-button]", "/api/subscription/cancel-renewal", "Cancelling renewal...");
-    bindRenewalButton("[data-resume-renewal-button]", "/api/subscription/resume-renewal", "Resuming renewal...");
+    bindRenewalButton("[data-cancel-renewal-button], [data-cancel-tier-button]", "/api/subscription/cancel-renewal", "Cancelling tier...", {
+      confirmMessage: "Cancel this membership tier? Paid access stays active until the current period ends.",
+    });
+    bindRenewalButton("[data-resume-renewal-button], [data-resume-tier-button]", "/api/subscription/resume-renewal", "Resuming tier...");
   };
 
   const initBuildLaunch = () => {
@@ -840,11 +879,12 @@
         if (activeTier === tier && !hasScheduledDowngrade) {
           if (fallback) {
             fallback.hidden = false;
-            fallback.disabled = true;
-            fallback.textContent = "Current membership";
+            fallback.disabled = false;
+            fallback.textContent = "Manage tier";
+            fallback.onclick = () => { window.location.href = "account.html#connect-account"; };
           }
           container.hidden = true;
-          setTierMessage(tier, "This membership tier is already active.");
+          setTierMessage(tier, "This membership tier is active. Use the other tier card to switch, or manage renewal in Account settings.");
           return;
         }
 

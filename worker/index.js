@@ -2421,12 +2421,17 @@ async function cancelSubscriptionRenewal(request, env) {
     throw error;
   }
 
+  const revokedFutureAccess = await revokeFutureScheduledMoonPayAccess(env, account.user.id, now);
+
   return json({
     ok: true,
     cancelAtPeriodEnd: true,
     tier: Number(access.tier || 0),
     expiresAt: access.expires_at,
-    message: `Renewal cancelled. Paid access remains active until ${formatApiDate(access.expires_at)}.`,
+    revokedFutureAccess,
+    message: revokedFutureAccess > 0
+      ? `Renewal cancelled and ${revokedFutureAccess} scheduled tier change removed. Paid access remains active until ${formatApiDate(access.expires_at)}.`
+      : `Renewal cancelled. Paid access remains active until ${formatApiDate(access.expires_at)}.`,
   });
 }
 
@@ -3297,6 +3302,36 @@ async function revokeScheduledLowerTierAccess(env, userId, keepTier, now = new D
   return Number(result?.meta?.changes || result?.changes || 0);
 }
 
+async function revokeFutureScheduledMoonPayAccess(env, userId, now = new Date().toISOString()) {
+  if (!env.DB) return 0;
+
+  const rows = await env.DB.prepare(
+    `SELECT id, tier, starts_at, expires_at
+     FROM subscriptions
+     WHERE user_id = ? AND source = 'moonpay' AND status = 'active' AND starts_at > ? AND expires_at > ?
+     ORDER BY starts_at ASC, tier DESC`,
+  ).bind(userId, now, now).all();
+
+  const scheduledRows = rows?.results || [];
+  if (!scheduledRows.length) return 0;
+
+  for (const row of scheduledRows) {
+    await env.DB.prepare(
+      "UPDATE subscriptions SET status = 'revoked', updated_at = ? WHERE id = ? AND status = 'active'",
+    ).bind(now, row.id).run();
+
+    const latestFutureMoonPay = await latestMoonPaySubscription(env, userId, Number(row.tier || 0));
+    if (latestFutureMoonPay?.moonpay_subscription_id) {
+      await env.DB.prepare(
+        `UPDATE moonpay_subscriptions
+         SET status = 'cancelled', updated_at = ?
+         WHERE user_id = ? AND moonpay_subscription_id = ? AND status IN ('pending', 'active', 'renewed')`,
+      ).bind(now, userId, latestFutureMoonPay.moonpay_subscription_id).run();
+    }
+  }
+
+  return scheduledRows.length;
+}
 
 async function activeRenewalCancellation(env, userId, accessRow) {
   if (!env.DB || !accessRow?.id) return null;

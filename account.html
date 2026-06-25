@@ -76,6 +76,19 @@
               </div>
               <button class="btn" type="submit">Save profile</button>
               <p class="form-note" data-profile-message>Profile data is attached to the Ravene Hub account.</p>
+              <section class="tier-settings-panel" data-tier-settings hidden>
+                <h3>Membership settings</h3>
+                <div class="tier-settings-status">
+                  <div><span>Current tier</span><strong data-settings-tier>No active tier</strong></div>
+                  <div><span>Paid access until</span><strong data-settings-expires>-</strong></div>
+                </div>
+                <div class="account-actions tier-settings-actions">
+                  <a class="btn btn-secondary" href="membership.html" data-change-tier-button>Change tier</a>
+                  <button class="btn btn-secondary" type="button" data-cancel-tier-button hidden>Cancel tier</button>
+                  <button class="btn" type="button" data-resume-tier-button hidden>Resume tier</button>
+                </div>
+                <p class="form-note" data-tier-settings-message>Change, cancel, or resume your membership tier here.</p>
+              </section>
             </form>
           </article>
 
