@@ -976,12 +976,14 @@
   };
 
   const setLikeState = (post) => {
+    const count = Number(post?.likeCount || 0);
     document.querySelectorAll("[data-like-count]").forEach((item) => {
-      item.textContent = String(post?.likeCount || 0);
+      item.textContent = String(count);
     });
     document.querySelectorAll("[data-like-post]").forEach((button) => {
       button.classList.toggle("is-active", Boolean(post?.likedByMe));
-      button.textContent = `${post?.likedByMe ? "♥" : "♡"} ${post?.likeCount || 0}`;
+      button.dataset.previousCount = String(count);
+      button.textContent = `Likes ${count}`;
       button.disabled = false;
     });
   };
@@ -1117,7 +1119,7 @@
         ${postMetaMarkup(post)}
         <h3>${escapeHTML(post.title)}</h3>
         <p class="text">${escapeHTML(post.excerpt || "")}</p>
-        <div class="reaction-line"><span>♡ ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
+        <div class="reaction-line"><span>Likes ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
       </div>
     </a>
   `;
@@ -1131,7 +1133,7 @@
         ${postMetaMarkup(post)}
         <h3>${escapeHTML(post.title)}</h3>
         <p class="text">${escapeHTML(post.excerpt || "")}</p>
-        <div class="reaction-line"><span>♡ ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
+        <div class="reaction-line"><span>Likes ${post.likeCount || 0}</span><span>${post.commentCount || 0} comments</span></div>
       </div>
     </a>
   `;
@@ -1860,11 +1862,45 @@
     }
   };
 
+  const postShareURL = () => {
+    const page = document.querySelector("[data-post-page]");
+    const url = new URL(window.location.href);
+    url.hash = "";
+
+    if (!page) return url.toString();
+
+    const params = new URLSearchParams(window.location.search);
+    const slug = page.dataset.postSlug || params.get("post") || "alternative-system";
+    url.search = slug && slug !== "alternative-system" ? `?post=${encodeURIComponent(slug)}` : "";
+    return url.toString();
+  };
+
+  const copyTextToClipboard = async (text) => {
+    if (navigator.clipboard?.writeText && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.top = "-9999px";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+
+    try {
+      return document.execCommand("copy");
+    } finally {
+      textarea.remove();
+    }
+  };
+
   const initShareButtons = () => {
     document.querySelectorAll("[data-share-url]").forEach((button) => {
       button.addEventListener("click", async () => {
-        const url = window.location.href;
-        const title = document.title;
+        const url = postShareURL();
         const previous = button.textContent;
 
         const flash = (label) => {
@@ -1875,21 +1911,16 @@
         };
 
         try {
-          if (navigator.share) {
-            await navigator.share({ title, url });
+          const copied = await copyTextToClipboard(url);
+          if (copied) {
+            flash("Link copied");
             return;
           }
-
-          if (navigator.clipboard) {
-            await navigator.clipboard.writeText(url);
-            flash("Copied");
-            return;
-          }
-
-          window.prompt("Copy post link", url);
         } catch {
-          flash("...");
+          // Fall through to the manual copy prompt below.
         }
+
+        window.prompt("Copy post link", url);
       });
     });
   };
