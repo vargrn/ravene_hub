@@ -320,7 +320,12 @@ async function registerWithPassword(request, env) {
   const body = await readJson(request);
   const email = normalizeEmail(body.email);
   const password = String(body.password || "");
-  const displayName = cleanDisplayName(body.displayName) || email.split("@")[0];
+  const requestedDisplayName = cleanDisplayName(body.displayName);
+  const fallbackDisplayName = safeFallbackDisplayName(email);
+  const displayName = requestedDisplayName || fallbackDisplayName;
+
+  const displayNameError = reservedDisplayNameReason(displayName);
+  if (displayNameError) return json({ error: displayNameError }, { status: 400 });
 
   const validationError = validateEmailPassword(email, password);
   if (validationError) return json({ error: validationError }, { status: 400 });
@@ -839,7 +844,10 @@ async function updateAccountProfile(request, env) {
   if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
 
   const body = await readJson(request);
-  const displayName = cleanDisplayName(body.displayName) || account.user.displayName;
+  const requestedDisplayName = cleanDisplayName(body.displayName);
+  const displayName = requestedDisplayName || account.user.displayName;
+  const displayNameError = requestedDisplayName ? reservedDisplayNameReason(displayName) : "";
+  if (displayNameError && !account.permissions?.canManageUsers) return json({ error: displayNameError }, { status: 400 });
   const avatarUrl = cleanUrl(body.avatarUrl, 500) || null;
   const bio = cleanLongText(body.bio, 600);
   const websiteUrl = cleanUrl(body.websiteUrl, 500) || null;
@@ -3858,6 +3866,70 @@ function normalizeEmail(value) {
 
 function cleanDisplayName(value) {
   return String(value || "").trim().replace(/\s+/g, " ").slice(0, 80);
+}
+
+function safeFallbackDisplayName(email) {
+  const fallback = cleanDisplayName(String(email || "").split("@")[0]) || "Member";
+  return reservedDisplayNameReason(fallback) ? "Member" : fallback;
+}
+
+function reservedDisplayNameReason(value) {
+  const name = cleanDisplayName(value);
+  if (!name) return "";
+  const normalized = normalizeReservedDisplayName(name);
+  const blockedExact = new Set([
+    "rav",
+    "ravene",
+    "ravenehub",
+    "hub",
+    "admin",
+    "administrator",
+    "moderator",
+    "mod",
+    "staff",
+    "support",
+    "owner",
+    "raveneadmin",
+    "adminravene",
+    "ravenehubadmin",
+    "adminravenehub",
+    "hubadmin",
+    "adminhub",
+    "ravenehubmoderator",
+    "moderatorravenehub",
+    "ravenehubstaff",
+    "staffravenehub",
+    "ravenehubsupport",
+    "supportravenehub",
+  ]);
+  if (blockedExact.has(normalized)) return "This display name is reserved.";
+
+  const authorityTerms = ["admin", "administrator", "moderator", "mod", "staff", "support", "owner"];
+  const brandTerms = ["rav", "ravene", "hub", "ravenehub"];
+  const hasAuthority = authorityTerms.some((term) => normalized.includes(term));
+  const hasBrand = brandTerms.some((term) => normalized.includes(term));
+  if (hasAuthority && hasBrand) return "This display name is reserved.";
+
+  if (/^ravene(?:hub)?(?:team|official|support|staff|admin|mod|moderator|owner)$/.test(normalized)) return "This display name is reserved.";
+  if (/^(?:team|official|support|staff|admin|mod|moderator|owner)ravene(?:hub)?$/.test(normalized)) return "This display name is reserved.";
+  return "";
+}
+
+function normalizeReservedDisplayName(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9а-яё]+/gi, "")
+    .replace(/[а]/g, "a")
+    .replace(/[её]/g, "e")
+    .replace(/[о]/g, "o")
+    .replace(/[р]/g, "p")
+    .replace(/[с]/g, "c")
+    .replace(/[х]/g, "x")
+    .replace(/[у]/g, "y")
+    .replace(/[і]/g, "i");
 }
 
 function cleanPostSlug(value) {
