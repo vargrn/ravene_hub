@@ -4313,6 +4313,28 @@ background-size: cover;
   }
 }
 
+/* FINAL 2026-06-25: quiet Hub EA launch row, no duplicate access warning. */
+.build-launch-row {
+  width: 100%;
+  border-radius: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.build-launch-row:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+
+.build-launch-row .form-note[hidden] {
+  display: none !important;
+}
+
+.build-launch-row .form-note {
+  margin-top: 9px;
+}
 
 /* FINAL 2026-06-25: cleaner connected accounts and temporary direct registration mode. */
 .connected-accounts-card {
@@ -4402,23 +4424,4 @@ background-size: cover;
   .linked-account-action {
     width: 100%;
   }
-}
-
-/* FINAL 2026-06-25: Hub gated build launch row. */
-.build-launch-row {
-  width: 100%;
-  border-radius: 0;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.build-launch-row:disabled {
-  cursor: wait;
-  opacity: 0.74;
-}
-
-.build-launch-row .form-note {
-  margin-top: 9px;
 }

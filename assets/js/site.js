@@ -672,9 +672,12 @@
 
     button.addEventListener("click", async () => {
       const message = document.querySelector("[data-build-message]");
-      const previous = button.textContent;
       button.disabled = true;
-      button.textContent = "Checking access...";
+      button.setAttribute("aria-busy", "true");
+      if (message) {
+        message.hidden = false;
+        message.textContent = "Checking access...";
+      }
 
       try {
         const launch = await api("/api/builds/current/launch", { method: "POST", body: "{}" });
@@ -683,13 +686,17 @@
           return;
         }
         if (message) {
-          message.textContent = "Access confirmed. Build URL is not connected yet, but the server issued a launch token.";
+          message.hidden = false;
+          message.textContent = "Access confirmed, but the game URL is not connected yet.";
         }
       } catch (error) {
-        if (message) message.textContent = error.message || "Could not open build.";
+        if (message) {
+          message.hidden = false;
+          message.textContent = error.message || "Could not open build.";
+        }
       } finally {
         button.disabled = false;
-        button.textContent = previous;
+        button.removeAttribute("aria-busy");
       }
     });
   };

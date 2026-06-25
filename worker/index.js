@@ -708,7 +708,6 @@ function cleanExternalUrl(value) {
   }
 }
 
-
 async function listPostComments(request, env, url) {
   if (!env.DB) return json({ comments: [], setupRequired: true });
 
