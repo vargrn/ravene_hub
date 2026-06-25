@@ -4524,3 +4524,47 @@ background-size: cover;
     grid-template-columns: 1fr !important;
   }
 }
+
+
+/* FINAL 2026-06-25: tighten Security card and remove admin meta labels space. */
+.connected-accounts-card {
+  padding: 22px 20px 18px !important;
+  gap: 0 !important;
+}
+
+.connected-accounts-card h2 {
+  margin-bottom: 14px !important;
+}
+
+.connected-accounts-card h2 + .linked-account-list {
+  margin-top: 0 !important;
+}
+
+.linked-account-list {
+  margin-bottom: 0 !important;
+}
+
+.linked-account-row {
+  min-height: 52px !important;
+  padding-top: 9px !important;
+  padding-bottom: 9px !important;
+}
+
+.linked-account-row.is-linked .telegram-link-actions {
+  display: none !important;
+}
+
+.connected-accounts-card .account-link-message[hidden] {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.admin-workspace-card,
+.account-layout .glass.card[data-admin-only] {
+  padding-top: 22px !important;
+}
+
+.admin-workspace-card .meta,
+.account-layout .glass.card[data-admin-only] > .meta {
+  display: none !important;
+}
