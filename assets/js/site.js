@@ -186,6 +186,7 @@
     const cancelRenewalButton = document.querySelector("[data-cancel-renewal-button]");
     const resumeRenewalButton = document.querySelector("[data-resume-renewal-button]");
     if (!panel) return;
+    const accountStateHeading = document.querySelector("[data-account-state]");
 
     panel.classList.toggle("is-connected", Boolean(account.authenticated));
     panel.classList.toggle("is-setup-required", Boolean(account.setupRequired));
@@ -194,6 +195,7 @@
       setAuthOnlyVisible(false);
       setGuestOnlyVisible(true);
       resetPrivilegedPanels();
+      if (accountStateHeading) accountStateHeading.hidden = false;
       setText("[data-account-state]", "Setup required");
       if (renewalNote) renewalNote.hidden = true;
       if (cancelRenewalButton) cancelRenewalButton.hidden = true;
@@ -207,7 +209,8 @@
       setAuthOnlyVisible(false);
       setGuestOnlyVisible(true);
       resetPrivilegedPanels();
-      setText("[data-account-state]", "Not connected");
+      if (accountStateHeading) accountStateHeading.hidden = true;
+      setText("[data-account-state]", "");
       setText("[data-account-name]", "Not connected");
       setText("[data-account-tier]", "No active tier");
       setText("[data-account-expires]", "-");
@@ -231,6 +234,7 @@
     const renewalStatus = account.subscription?.renewalStatus || account.subscription?.status || "none";
     const paymentSource = account.subscription?.paymentSource || account.subscription?.source || null;
     const showMoonPayNote = tier > 0 && paymentSource === "moonpay";
+    if (accountStateHeading) accountStateHeading.hidden = false;
     setText("[data-account-state]", "Connected");
     setText("[data-account-name]", account.user?.displayName || "Connected account");
     setText("[data-account-tier]", tier > 0 ? `Tier ${tier}` : "No active tier");
@@ -505,6 +509,7 @@
     setAuthOnlyVisible(false);
     setGuestOnlyVisible(true);
     resetPrivilegedPanels();
+    if (accountStateHeading) accountStateHeading.hidden = false;
     setText("[data-account-state]", "Local preview");
     document.querySelectorAll("[data-auth-gate], [data-auth-trigger]").forEach((item) => {
       item.hidden = false;
