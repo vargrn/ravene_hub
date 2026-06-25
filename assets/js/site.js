@@ -955,7 +955,20 @@
     .map((paragraph) => `<p>${escapeHTML(paragraph).replace(/\n/g, "<br>")}</p>`)
     .join("");
 
-  const postHref = (post) => post.staticHref || (post.slug === "alternative-system" ? "post-alternative-system.html" : `post-alternative-system.html?post=${encodeURIComponent(post.slug || "")}`);
+  const postSlugFromLocation = () => {
+    const pathMatch = window.location.pathname.match(/\/post\/([^/?#]+)/);
+    if (pathMatch) return decodeURIComponent(pathMatch[1] || "");
+    const params = new URLSearchParams(window.location.search);
+    return params.get("post") || "";
+  };
+
+  const postPermalink = (slug) => {
+    const cleanSlug = encodeURIComponent(slug || "alternative-system");
+    if (window.location.protocol === "file:") return `post-alternative-system.html?post=${cleanSlug}`;
+    return `/post/${cleanSlug}`;
+  };
+
+  const postHref = (post) => post.staticHref || postPermalink(post.slug || "alternative-system");
 
   const mediaMarkup = (media = []) => media.map((item) => {
     const url = escapeHTML(item.url || "");
@@ -1018,8 +1031,7 @@
     const loginLink = document.querySelector("[data-comment-login]");
     if (!page || !form) return;
 
-    const params = new URLSearchParams(window.location.search);
-    const postSlug = params.get("post") || page.dataset.postSlug || "alternative-system";
+    const postSlug = postSlugFromLocation() || page.dataset.postSlug || "alternative-system";
     page.dataset.postSlug = postSlug;
 
     const loadComments = async () => {
@@ -1198,8 +1210,7 @@
   const initPostDetail = async () => {
     const page = document.querySelector("[data-post-page]");
     if (!page) return;
-    const params = new URLSearchParams(window.location.search);
-    const postSlug = params.get("post") || page.dataset.postSlug || "alternative-system";
+    const postSlug = postSlugFromLocation() || page.dataset.postSlug || "alternative-system";
     page.dataset.postSlug = postSlug;
 
     try {
@@ -1864,14 +1875,22 @@
 
   const postShareURL = () => {
     const page = document.querySelector("[data-post-page]");
-    const url = new URL(window.location.href);
+    if (!page) {
+      const url = new URL(window.location.href);
+      url.hash = "";
+      return url.toString();
+    }
+
+    const slug = page.dataset.postSlug || postSlugFromLocation() || "alternative-system";
+    if (window.location.protocol === "file:") {
+      const url = new URL("post-alternative-system.html", window.location.href);
+      url.search = `?post=${encodeURIComponent(slug)}`;
+      url.hash = "";
+      return url.toString();
+    }
+
+    const url = new URL(postPermalink(slug), window.location.origin);
     url.hash = "";
-
-    if (!page) return url.toString();
-
-    const params = new URLSearchParams(window.location.search);
-    const slug = page.dataset.postSlug || params.get("post") || "alternative-system";
-    url.search = slug && slug !== "alternative-system" ? `?post=${encodeURIComponent(slug)}` : "";
     return url.toString();
   };
 

@@ -29,6 +29,11 @@ export default {
       return handleApi(request, env, url);
     }
 
+    if (request.method === "GET" && isShareablePostPage(url)) {
+      const postPageResponse = await serveShareablePostPage(request, env, url);
+      if (postPageResponse) return postPageResponse;
+    }
+
     if (env.ASSETS?.fetch) {
       const assetResponse = await env.ASSETS.fetch(request);
       if (assetResponse.status !== 404) {
@@ -39,6 +44,163 @@ export default {
     return new Response("Not found", { status: 404 });
   },
 };
+
+
+function isShareablePostPage(url) {
+  const path = url.pathname.replace(/\/+$/, "") || "/";
+  return path === "/post-alternative-system.html" || /^\/post\/[^/]+$/i.test(path);
+}
+
+function postSlugFromPageURL(url) {
+  const pathMatch = url.pathname.match(/^\/post\/([^/?#]+)$/i);
+  if (pathMatch) return cleanPostSlug(decodeURIComponent(pathMatch[1] || ""));
+  return cleanPostSlug(url.searchParams.get("post")) || "alternative-system";
+}
+
+async function serveShareablePostPage(request, env, url) {
+  if (!env.ASSETS?.fetch) return null;
+
+  const slug = postSlugFromPageURL(url);
+  const shellUrl = new URL("/post-alternative-system.html", url.origin);
+  const shellResponse = await env.ASSETS.fetch(new Request(shellUrl.toString(), request));
+  if (shellResponse.status === 404) return null;
+
+  const preview = await loadSharePostPreview(env, slug, url.origin);
+  const shell = await shellResponse.text();
+  const html = injectSharePreviewMeta(shell, preview, slug);
+  const headers = new Headers(shellResponse.headers);
+  headers.set("content-type", "text/html; charset=utf-8");
+  headers.set("cache-control", "public, max-age=60");
+  return withSecurityHeaders(new Response(html, { status: 200, headers }));
+}
+
+async function loadSharePostPreview(env, slug, origin) {
+  const fallback = fallbackSharePostPreview(slug, origin);
+  if (!env.DB) return fallback;
+
+  try {
+    await ensurePostSchema(env);
+    const row = await env.DB.prepare(
+      `SELECT * FROM hub_posts WHERE slug = ? AND deleted_at IS NULL LIMIT 1`,
+    ).bind(slug).first();
+    if (!row || row.status !== "published") return fallback;
+
+    if (row.visibility !== "public") {
+      return {
+        ...fallback,
+        title: `${row.title || "Member post"} · Ravene Hub`,
+        description: "This Ravene Hub post requires an account or active membership to read.",
+        image: absoluteShareUrl(row.cover_url || "assets/media/posts/biopunk-duo.webp", origin),
+        visibility: row.visibility || "registered",
+      };
+    }
+
+    const mediaRows = await env.DB.prepare(
+      "SELECT media_type, url FROM post_media WHERE post_id = ? ORDER BY sort_order ASC, created_at ASC",
+    ).bind(row.id).all();
+    const image = row.cover_url || firstMediaUrl(mediaRows.results, "image") || fallback.image;
+    return {
+      title: row.title || fallback.title,
+      description: shareDescription(row.excerpt || row.body || fallback.description),
+      image: absoluteShareUrl(image, origin),
+      canonicalUrl: absoluteShareUrl(`/post/${encodeURIComponent(slug)}`, origin),
+      authorName: row.author_name || "Ravene",
+      category: row.category || "Development",
+      publishedAt: row.published_at || row.created_at || "",
+      updatedAt: row.updated_at || "",
+      visibility: "public",
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function fallbackSharePostPreview(slug, origin) {
+  const isDefault = slug === "alternative-system";
+  const title = isDefault ? "Alternative system for Early Access verification" : "Ravene Hub post";
+  const description = isDefault
+    ? "An alternative system for Early Access verification, support tiers, crypto payments, project news, and BioPunk hub infrastructure."
+    : "A Ravene Hub post from BioPunk: Phantasmagoria.";
+
+  return {
+    title,
+    description,
+    image: absoluteShareUrl("assets/media/posts/biopunk-duo.webp", origin),
+    canonicalUrl: absoluteShareUrl(`/post/${encodeURIComponent(slug || "alternative-system")}`, origin),
+    authorName: "Ravene",
+    category: "Development",
+    publishedAt: "",
+    updatedAt: "",
+    visibility: "public",
+  };
+}
+
+function injectSharePreviewMeta(shell, preview, slug) {
+  const title = preview.title || "Ravene Hub post";
+  const description = shareDescription(preview.description || "Ravene Hub post from BioPunk: Phantasmagoria.");
+  const canonicalUrl = preview.canonicalUrl || "";
+  const image = preview.image || "";
+  const meta = `<!-- share-preview-meta:start -->
+  <meta name="description" content="${escapeHtmlAttribute(description)}" />
+  <link rel="canonical" href="${escapeHtmlAttribute(canonicalUrl)}" />
+  <meta property="og:site_name" content="Ravene Hub" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="${escapeHtmlAttribute(title)}" />
+  <meta property="og:description" content="${escapeHtmlAttribute(description)}" />
+  <meta property="og:url" content="${escapeHtmlAttribute(canonicalUrl)}" />
+  <meta property="og:image" content="${escapeHtmlAttribute(image)}" />
+  <meta property="og:image:alt" content="${escapeHtmlAttribute(title)}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${escapeHtmlAttribute(title)}" />
+  <meta name="twitter:description" content="${escapeHtmlAttribute(description)}" />
+  <meta name="twitter:image" content="${escapeHtmlAttribute(image)}" />
+  ${preview.publishedAt ? `<meta property="article:published_time" content="${escapeHtmlAttribute(preview.publishedAt)}" />` : ""}
+  ${preview.updatedAt ? `<meta property="article:modified_time" content="${escapeHtmlAttribute(preview.updatedAt)}" />` : ""}
+  ${preview.authorName ? `<meta property="article:author" content="${escapeHtmlAttribute(preview.authorName)}" />` : ""}
+  ${preview.category ? `<meta property="article:section" content="${escapeHtmlAttribute(preview.category)}" />` : ""}
+  <!-- share-preview-meta:end -->`;
+
+  let next = shell.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeHtmlText(title)} · Ravene Hub</title>`);
+  if (/<!-- share-preview-meta:start -->[\s\S]*?<!-- share-preview-meta:end -->/i.test(next)) {
+    next = next.replace(/<!-- share-preview-meta:start -->[\s\S]*?<!-- share-preview-meta:end -->/i, meta);
+  } else {
+    next = next.replace(/<title>[\s\S]*?<\/title>/i, (match) => `${match}\n  ${meta}`);
+  }
+  next = next.replace(/data-post-slug="[^"]*"/i, `data-post-slug="${escapeHtmlAttribute(slug || "alternative-system")}"`);
+  return next;
+}
+
+function absoluteShareUrl(value, origin) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    return new URL(text, origin.endsWith("/") ? origin : `${origin}/`).toString();
+  } catch {
+    return "";
+  }
+}
+
+function shareDescription(value) {
+  const text = String(value || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "Ravene Hub post from BioPunk: Phantasmagoria.";
+  return text.length > 240 ? `${text.slice(0, 237).trim()}...` : text;
+}
+
+function escapeHtmlText(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function escapeHtmlAttribute(value) {
+  return escapeHtmlText(value)
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
 async function handleApi(request, env, url) {
   try {
