@@ -4403,3 +4403,22 @@ background-size: cover;
     width: 100%;
   }
 }
+
+/* FINAL 2026-06-25: Hub gated build launch row. */
+.build-launch-row {
+  width: 100%;
+  border-radius: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.build-launch-row:disabled {
+  cursor: wait;
+  opacity: 0.74;
+}
+
+.build-launch-row .form-note {
+  margin-top: 9px;
+}

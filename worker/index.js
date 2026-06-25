@@ -1,7 +1,8 @@
 const SESSION_COOKIE = "rh_session";
 const SESSION_DAYS = 30;
 const SESSION_MAX_AGE = SESSION_DAYS * 24 * 60 * 60;
-const BUILD_SESSION_MINUTES = 15;
+const BUILD_SESSION_MINUTES = 10;
+const GAME_COOKIE_HOURS = 12;
 const PASSWORD_ITERATIONS = 60000;
 const PASSWORD_ALGORITHM = "pbkdf2-sha256";
 const EMAIL_VERIFICATION_MINUTES = 15;
@@ -144,6 +145,14 @@ async function handleApi(request, env, url) {
 
     if (url.pathname === "/api/builds/current/launch" && request.method === "POST") {
       return createBuildLaunch(request, env);
+    }
+
+    if (url.pathname === "/api/game-session/check" && request.method === "POST") {
+      return checkGameSession(request, env);
+    }
+
+    if (url.pathname === "/api/game-session/access-check" && request.method === "POST") {
+      return checkGameAccess(request, env);
     }
 
     return json({ error: "Not found" }, { status: 404 });
@@ -552,27 +561,153 @@ async function createBuildLaunch(request, env) {
 
   const account = await currentAccount(request, env);
   if (!account.authenticated) return json({ error: "Sign in first" }, { status: 401 });
-  if (!account.subscription.canLaunchBuilds) {
+
+  const access = await gameAccessForUser(env, account.user.id);
+  if (!access.active) {
     return json({ error: "Tier 2 access is required" }, { status: 403 });
   }
 
+  const buildKey = cleanGameBuildKey("current-ea");
   const token = randomToken();
   const tokenHash = await sha256(token);
   const now = new Date();
   const expiresAt = addMinutes(now, BUILD_SESSION_MINUTES).toISOString();
 
   await env.DB.prepare(
-    "INSERT INTO build_launch_sessions (id, user_id, build_key, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
-  ).bind(randomId(), account.user.id, "current-ea", tokenHash, now.toISOString(), expiresAt).run();
-
-  const baseUrl = env.CURRENT_BUILD_URL || "";
-  return json({
-    buildKey: "current-ea",
-    launchToken: token,
+    `INSERT INTO game_sessions
+      (id, user_id, build_key, token_hash, source, tier_at_issue, access_expires_at, created_at, expires_at, consumed_at, last_checked_at, revoked_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
+  ).bind(
+    randomId(),
+    account.user.id,
+    buildKey,
+    tokenHash,
+    access.source || "hub",
+    Number(access.tier || 0),
+    access.expiresAt || null,
+    now.toISOString(),
     expiresAt,
-    launchUrl: baseUrl ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}session=${encodeURIComponent(token)}` : null,
+  ).run();
+
+  const baseUrl = cleanExternalUrl(env.EA_HUB_GAME_URL || env.CURRENT_BUILD_URL || "");
+  return json({
+    buildKey,
+    hubSession: token,
+    expiresAt,
+    launchUrl: baseUrl ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}hub_session=${encodeURIComponent(token)}` : null,
   });
 }
+
+async function checkGameSession(request, env) {
+  if (!env.DB) return json({ ok: false, error: "Database is not configured yet" }, { status: 503 });
+  const secretError = requireGameGateSecret(request, env);
+  if (secretError) return secretError;
+
+  const body = await readJson(request);
+  const token = String(body.hubSession || body.sessionToken || body.token || "").trim();
+  const buildKey = cleanGameBuildKey(body.buildKey || "current-ea");
+  if (!token) return json({ ok: false, error: "Missing hub_session" }, { status: 400 });
+
+  const tokenHash = await sha256(token);
+  const now = new Date().toISOString();
+  const row = await env.DB.prepare(
+    `SELECT id, user_id, build_key, source, tier_at_issue, access_expires_at, expires_at, consumed_at, revoked_at
+     FROM game_sessions
+     WHERE token_hash = ? AND build_key = ? LIMIT 1`,
+  ).bind(tokenHash, buildKey).first();
+
+  if (!row || row.revoked_at) return json({ ok: false, error: "Game session was not found" }, { status: 404 });
+  if (row.expires_at <= now) return json({ ok: false, error: "Game session expired" }, { status: 401 });
+  if (row.consumed_at) return json({ ok: false, error: "Game session was already used" }, { status: 409 });
+
+  const access = await gameAccessForUser(env, row.user_id);
+  if (!access.active) return json({ ok: false, error: "Early Access is not active", access }, { status: 403 });
+
+  await env.DB.prepare("UPDATE game_sessions SET consumed_at = ?, last_checked_at = ? WHERE id = ?")
+    .bind(now, now, row.id).run();
+
+  return json({
+    ok: true,
+    buildKey,
+    session: {
+      id: row.id,
+      userId: row.user_id,
+      source: row.source || access.source || "hub",
+      issuedTier: Number(row.tier_at_issue || access.tier || 0),
+      expiresAt: row.expires_at,
+      gameCookieMaxAge: GAME_COOKIE_HOURS * 60 * 60,
+    },
+    access,
+  });
+}
+
+async function checkGameAccess(request, env) {
+  if (!env.DB) return json({ ok: false, error: "Database is not configured yet" }, { status: 503 });
+  const secretError = requireGameGateSecret(request, env);
+  if (secretError) return secretError;
+
+  const body = await readJson(request);
+  const userId = String(body.userId || "").trim();
+  const buildKey = cleanGameBuildKey(body.buildKey || "current-ea");
+  const sessionId = String(body.sessionId || "").trim();
+  if (!userId) return json({ ok: false, error: "Missing userId" }, { status: 400 });
+
+  const access = await gameAccessForUser(env, userId);
+  if (sessionId) {
+    await env.DB.prepare("UPDATE game_sessions SET last_checked_at = ? WHERE id = ? AND user_id = ? AND build_key = ?")
+      .bind(new Date().toISOString(), sessionId, userId, buildKey).run();
+  }
+
+  if (!access.active) return json({ ok: false, error: "Early Access is not active", access }, { status: 403 });
+  return json({ ok: true, buildKey, access });
+}
+
+async function gameAccessForUser(env, userId) {
+  const subscription = await activeSubscription(env, userId);
+  const tier = Number(subscription?.tier || 0);
+  const active = Boolean(subscription?.canLaunchBuilds && tier >= 2);
+  return {
+    active,
+    tier,
+    source: subscription?.source || subscription?.paymentSource || "none",
+    status: subscription?.renewalStatus || subscription?.status || "none",
+    startsAt: subscription?.startsAt || null,
+    expiresAt: subscription?.expiresAt || null,
+  };
+}
+
+function requireGameGateSecret(request, env) {
+  const configured = String(env.GAME_GATE_SECRET || "").trim();
+  if (!configured) return json({ ok: false, error: "GAME_GATE_SECRET is not configured" }, { status: 500 });
+
+  const received = String(
+    request.headers.get("x-ravene-game-gate-secret") ||
+    request.headers.get("x-bp-game-gate-secret") ||
+    "",
+  ).trim();
+
+  if (!safeEqual(received, configured)) {
+    return json({ ok: false, error: "Forbidden game gate request" }, { status: 403 });
+  }
+  return null;
+}
+
+function cleanGameBuildKey(value) {
+  const clean = String(value || "current-ea").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-").slice(0, 80);
+  return clean || "current-ea";
+}
+
+function cleanExternalUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text);
+    return url.protocol === "https:" ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
 
 async function listPostComments(request, env, url) {
   if (!env.DB) return json({ comments: [], setupRequired: true });
@@ -3770,6 +3905,17 @@ async function sha256(value) {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function safeEqual(a, b) {
+  const left = String(a || "");
+  const right = String(b || "");
+  if (left.length !== right.length) return false;
+  let diff = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    diff |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return diff === 0;
 }
 
 function randomId() {
